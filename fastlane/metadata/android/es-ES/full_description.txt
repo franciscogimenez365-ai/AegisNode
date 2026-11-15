@@ -1,0 +1,9 @@
+AegisNode es una estación táctica de código abierto diseñada para operar sin conexión a Internet durante emergencias, apagones prolongados o expediciones fuera de cobertura.
+
+Características principales:
+• Red en malla Bluetooth Low Energy (BLE Multi-Hop): intercambio descentralizado de mensajes con saltos configurables (TTL 1–20), entrega fiable GATT y servicio en segundo plano con gestión de batería.
+• Coordenadas GPS clicables: comparte tu ubicación exacta y abre el mapa offline directamente al tocar las coordenadas recibidas.
+• Portal Web Wi-Fi local: servidor HTTP con código QR para compartir el chat y manuales desde el navegador con dispositivos cercanos que no tengan la app instalada.
+• Cartografía offline (MBTiles): mapas locales con zoom táctico de hasta nivel 17, brújula magnetométrica y navegación GPS pura.
+• Enciclopedias offline (ZIM / libzim): motor nativo C++ para consultar Wikipedia, WikiMed o guías técnicas al instante en tema oscuro OLED.
+• Biblioteca PDF local: gestor y visor integrado para manuales de supervivencia y protocolos personales.

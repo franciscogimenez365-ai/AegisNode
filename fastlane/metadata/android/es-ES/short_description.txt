@@ -1,0 +1,1 @@
+Estación táctica offline: malla Bluetooth, mapas MBTiles y enciclopedias ZIM.
