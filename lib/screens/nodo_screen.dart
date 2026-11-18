@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -23,12 +25,25 @@ class _NodoScreenState extends State<NodoScreen> {
   NodoConfig _config = NodoConfig();
   bool _bleActivo = false;
   bool _wifiActivo = false;
+  bool _sosActivo = false;
+  bool _verCanalPrivado = false;
+  Timer? _timerSos;
+  static const MethodChannel _sysChannel =
+      MethodChannel('com.emergencia.aegis_node/kiwix');
+
 
   @override
   void initState() {
     super.initState();
     _cargarConfig();
   }
+    @override
+  void dispose() {
+    _timerSos?.cancel();
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
 
   Future<void> _cargarConfig() async {
     final c = await NodoConfigService.cargar();
@@ -99,10 +114,67 @@ class _NodoScreenState extends State<NodoScreen> {
       texto: texto,
       ttlInicial: _config.ttlMaximo,
       gps: gpsStr,
+      esPrivado: _verCanalPrivado && _config.claveGrupo.trim().isNotEmpty,
+      claveGrupo: _config.claveGrupo,
     );
   }
+  Future<void> _activarODetenerSos() async {
+    if (_sosActivo) {
+      _timerSos?.cancel();
+      setState(() => _sosActivo = false);
+      MeshChatService.publicarAvisoSistema('Baliza SOS desactivada.');
+      return;
+    }
+
+    HapticFeedback.heavyImpact();
+    setState(() => _sosActivo = true);
+
+    // Si la Malla BLE estaba apagada, la encendemos automáticamente
+    if (!_bleActivo) {
+      await _toggleMallaBle(true);
+    }
+
+    await _emitirPulsoSos();
+    _timerSos = Timer.periodic(const Duration(minutes: 2), (_) {
+      if (_sosActivo) _emitirPulsoSos();
+    });
+  }
+
+  Future<void> _emitirPulsoSos() async {
+    int bateria = -1;
+    try {
+      bateria = await _sysChannel.invokeMethod<int>('obtenerBateria') ?? -1;
+    } catch (_) {}
+
+    String? gpsStr;
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings:
+            const LocationSettings(accuracy: LocationAccuracy.high),
+      ).timeout(const Duration(seconds: 6));
+      gpsStr =
+          '${pos.latitude.toStringAsFixed(6)},${pos.longitude.toStringAsFixed(6)}';
+    } catch (_) {}
+
+    final aliasEfectivo =
+        _config.alias.trim().isEmpty ? 'NODO-SOS' : _config.alias.trim();
+    final batTexto = bateria >= 0 ? ' • BAT: $bateria%' : '';
+    final cuerpoSos =
+        '🚨 [BALIZA SOS]$batTexto • REQUIERO ASISTENCIA INMEDIATA';
+
+    await MeshChatService.publicarMensajeLocal(
+      autor: aliasEfectivo,
+      texto: cuerpoSos,
+      ttlInicial: 20, // Máximo alcance posible en la malla
+      gps: gpsStr,
+    );
+
+  }
+
+  
   void _abrirConfiguracionNodo() {
     final aliasCtrl = TextEditingController(text: _config.alias);
+    final claveCtrl = TextEditingController(text: _config.claveGrupo);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -132,6 +204,19 @@ class _NodoScreenState extends State<NodoScreen> {
                     fillColor: Color(0xFF1A1A1A),
                   ),
                 ),
+             const SizedBox(height: 10),
+             TextField(
+               controller: claveCtrl,
+               obscureText: true,
+               decoration: const InputDecoration(
+                 labelText: 'Clave de Grupo AES-256 (Opcional)',
+                 hintText: 'Vacío = solo canal abierto comunitario',
+                 prefixIcon: Icon(Icons.lock_outline, color: Color(0xFF00E676)),
+                 filled: true,
+                 fillColor: Color(0xFF1A1A1A),
+               ),
+             ),
+ 
                 const SizedBox(height: 12),
                 SwitchListTile(
                   title: const Text('Rol: Nodo Maestro (Punto de Mando)'),
@@ -214,6 +299,8 @@ class _NodoScreenState extends State<NodoScreen> {
                       foregroundColor: Colors.black),
                onPressed: () async {
                  _config.alias = aliasCtrl.text.trim();
+                 _config.claveGrupo = claveCtrl.text.trim();
+                 if (_config.claveGrupo.isEmpty) _verCanalPrivado = false;
                  await NodoConfigService.guardar(_config);
                  if (_bleActivo) {
                    await BleMeshService.detenerMalla();
@@ -223,6 +310,7 @@ class _NodoScreenState extends State<NodoScreen> {
                  Navigator.pop(ctx);
                  setState(() {});
                },
+
                   child: const Text('GUARDAR CONFIGURACIÓN',
                       style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
@@ -233,56 +321,207 @@ class _NodoScreenState extends State<NodoScreen> {
       ),
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          color: const Color(0xFF121212),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
+    void _abrirRadarVecinos() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF121212),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        final vecinos = BleMeshService.listaVecinosActivos;
+        return Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${_config.alias.isEmpty ? "SIN ALIAS" : _config.alias} • ${_config.esMaestro ? "MAESTRO" : "REPETIDOR"} (TTL ${_config.ttlMaximo})',
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'RADAR DE NODOS VECINOS (BLE)',
+                    style: TextStyle(
+                      color: Color(0xFFFF6D00),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  Text(
+                    '${vecinos.length} activos',
+                    style: const TextStyle(color: Color(0xFF00E676), fontSize: 12),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.grey),
+              if (vecinos.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Text(
+                    'Ningún nodo vecino detectado en los últimos 25 segundos.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                )
+              else
+                ...vecinos.map((v) {
+                  final haceSeg =
+                      DateTime.now().difference(v.ultimaVezVisto).inSeconds;
+                  final String calidad;
+                  final Color colorSenal;
+                  if (v.rssi >= -65) {
+                    calidad = 'Señal Fuerte (Cerca)';
+                    colorSenal = const Color(0xFF00E676);
+                  } else if (v.rssi >= -82) {
+                    calidad = 'Señal Media';
+                    colorSenal = const Color(0xFFFF6D00);
+                  } else {
+                    calidad = 'Señal Débil (Al límite)';
+                    colorSenal = Colors.redAccent;
+                  }
+
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.radar, color: colorSenal),
+                    title: Text(
+                      v.alias,
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF00E676),
-                          fontSize: 13),
+                          fontWeight: FontWeight.bold, color: Colors.white),
                     ),
-                    StreamBuilder<int>(
-                      stream: BleMeshService.streamVecinos,
-                      initialData: BleMeshService.cantidadNodosVecinos,
-                      builder: (context, snap) {
-                        final vecinos = snap.data ?? 0;
-                        return Text(
-                          _bleActivo
-                              ? 'Malla BLE Activa • Vecinos: $vecinos'
-                              : 'Malla BLE Apagada (Ahorro máximo)',
-                          style:
-                              const TextStyle(color: Colors.grey, fontSize: 11),
-                        );
-                      },
+                    subtitle: Text(
+                      '$calidad • Visto hace ${haceSeg}s',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
-                  ],
-                ),
-              ),
-              Switch(
-                value: _bleActivo,
-                activeThumbColor: const Color(0xFF00E676),
-                onChanged: _toggleMallaBle,
-              ),
-              IconButton(
-                icon: const Icon(Icons.tune, color: Color(0xFFFF6D00)),
-                tooltip: 'Configurar Privacidad y Energía',
-                onPressed: _abrirConfiguracionNodo,
-              ),
+                    trailing: Text(
+                      '${v.rssi} dBm',
+                      style: TextStyle(
+                        color: colorSenal,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  );
+                }),
             ],
           ),
+        );
+      },
+    );
+  }
+
+
+@override
+Widget build(BuildContext context) {
+  return Column(
+    children: [
+      Container(
+        color: const Color(0xFF121212),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child:Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${_config.alias.isEmpty ? "SIN ALIAS" : _config.alias} • ${_config.esMaestro ? "MAESTRO" : "REPETIDOR"} (TTL ${_config.ttlMaximo})',
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF00E676),
+                              fontSize: 13),
+                        ),
+                        InkWell(
+                          onTap: _bleActivo ? _abrirRadarVecinos : null,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: StreamBuilder<int>(
+                              stream: BleMeshService.streamVecinos,
+                              initialData: BleMeshService.cantidadNodosVecinos,
+                              builder: (context, snap) {
+                                final cant = snap.data ?? 0;
+                                return Text(
+                                  _bleActivo
+                                      ? 'Malla BLE Activa • Vecinos: $cant (Ver radar ▸)'
+                                      : 'Malla BLE Apagada (Ahorro máximo)',
+                                  style: TextStyle(
+                                    color: _bleActivo
+                                        ? const Color(0xFF00E676)
+                                        : Colors.grey,
+                                    fontSize: 12,
+                                    decoration: _bleActivo
+                                        ? TextDecoration.underline
+                                        : TextDecoration.none,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  GestureDetector(
+                    onLongPress: _activarODetenerSos,
+                    onTap: () {
+                      if (_sosActivo) {
+                        _activarODetenerSos();
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            duration: Duration(seconds: 2),
+                            backgroundColor: Colors.redAccent,
+                            content: Text(
+                              'Mantén presionado el botón SOS 2 segundos para emitir alerta de emergencia.',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: _sosActivo
+                            ? Colors.red
+                            : Colors.red.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.redAccent, width: 1.5),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.sos, color: Colors.white, size: 17),
+                          if (_sosActivo) ...[
+                            const SizedBox(width: 3),
+                            const Text(
+                              'ACTIVO',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Switch(
+                    value: _bleActivo,
+                    activeThumbColor: const Color(0xFF00E676),
+                    onChanged: _toggleMallaBle,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.settings, color: Color(0xFFFF6D00)),
+                    tooltip: 'Configurar Nodo y Batería',
+                    onPressed: _abrirConfiguracionNodo,
+                  ),
+                ],
+              ),
         ),
         ExpansionTile(
           backgroundColor: const Color(0xFF121212),
@@ -318,6 +557,49 @@ class _NodoScreenState extends State<NodoScreen> {
               ),
           ],
         ),
+             if (_config.chatActivo && _config.claveGrupo.trim().isNotEmpty)
+       Container(
+         color: const Color(0xFF0D0D0D),
+         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+         child: Row(
+           children: [
+             Expanded(
+               child: ElevatedButton.icon(
+                 style: ElevatedButton.styleFrom(
+                   backgroundColor: !_verCanalPrivado
+                       ? const Color(0xFFFF6D00)
+                       : const Color(0xFF1A1A1A),
+                   foregroundColor:
+                       !_verCanalPrivado ? Colors.black : Colors.grey,
+                 ),
+                 onPressed: () => setState(() => _verCanalPrivado = false),
+                 icon: const Icon(Icons.public, size: 16),
+                 label: const Text('CANAL ABIERTO',
+                     style: TextStyle(
+                         fontSize: 11, fontWeight: FontWeight.bold)),
+               ),
+             ),
+             const SizedBox(width: 8),
+             Expanded(
+               child: ElevatedButton.icon(
+                 style: ElevatedButton.styleFrom(
+                   backgroundColor: _verCanalPrivado
+                       ? const Color(0xFF00E676)
+                       : const Color(0xFF1A1A1A),
+                   foregroundColor:
+                       _verCanalPrivado ? Colors.black : Colors.grey,
+                 ),
+                 onPressed: () => setState(() => _verCanalPrivado = true),
+                 icon: const Icon(Icons.lock, size: 16),
+                 label: const Text('GRUPO PRIVADO',
+                     style: TextStyle(
+                         fontSize: 11, fontWeight: FontWeight.bold)),
+               ),
+             ),
+           ],
+         ),
+       ),
+
         Expanded(
           child: !_config.chatActivo
               ? const Center(
@@ -327,13 +609,23 @@ class _NodoScreenState extends State<NodoScreen> {
                   stream: MeshChatService.streamMensajes,
                   initialData: MeshChatService.mensajes,
                   builder: (context, snapshot) {
-                    final msgs = snapshot.data ?? [];
+                    final todos = snapshot.data ?? [];
+                    final msgs = todos
+                        .where((m) =>
+                            m.esPrivado ==
+                            (_verCanalPrivado &&
+                                _config.claveGrupo.trim().isNotEmpty))
+                        .toList();
+
                     if (msgs.isEmpty) {
-                      return const Center(
+                      return Center(
                         child: Text(
-                            'Sin mensajes en la malla.\nEnciende BLE o Wi-Fi para comunicarte.',
+                            _verCanalPrivado &&
+                                    _config.claveGrupo.trim().isNotEmpty
+                                ? 'Sin mensajes cifrados en este grupo.\nComparte la misma Clave AES-256 con tu equipo.'
+                                : 'Sin mensajes en la malla.\nEnciende BLE o Wi-Fi para comunicarte.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey)),
+                            style: const TextStyle(color: Colors.grey)),
                       );
                     }
                     return ListView.builder(
@@ -424,12 +716,3 @@ class _NodoScreenState extends State<NodoScreen> {
     );
   }
 }
-
-
-
-
-
-
-
-
-

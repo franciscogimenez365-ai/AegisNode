@@ -5,6 +5,9 @@ import '../services/descargas_service.dart';
 import 'explorador_mapas_screen.dart';
 import '../services/geo_db_service.dart';
 import 'explorador_pdf_screen.dart';
+import 'package:geolocator/geolocator.dart';
+import '../services/enrutador_offline_service.dart';
+
 
 
 class DescargasScreen extends StatefulWidget {
@@ -25,9 +28,54 @@ class _DescargasScreenState extends State<DescargasScreen> {
   String _regionGpsDetectada = 'global';
   List<RecursoOffline> _mapasDinamicos = [];
   final TextEditingController _wikiSearchCtrl = TextEditingController();
-List<RecursoOffline> _wikisBuscadas = [];
-bool _buscandoWiki = false;
+  List<RecursoOffline> _wikisBuscadas = [];
+  bool _buscandoWiki = false;
+bool _descargandoRedVial = false;
+String _estadoRedVial = '';
+double? _progresoRedVial;
 
+Future<void> _descargarRedVialGps() async {
+  if (_descargandoRedVial) return;
+  setState(() {
+    _descargandoRedVial = true;
+    _progresoRedVial = null;
+    _estadoRedVial = 'Obteniendo ubicación GPS actual...';
+  });
+
+  try {
+    final pos = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+    ).timeout(const Duration(seconds: 10));
+
+    final ok = await EnrutadorOfflineService.descargarRedVialLocal(
+      rutaMapas: '${widget.rutaBase}/mapas',
+      lat: pos.latitude,
+      lon: pos.longitude,
+      radioKm: 45.0,
+      onProgreso: (msg, prog) {
+        if (mounted) {
+          setState(() {
+            _estadoRedVial = msg;
+            _progresoRedVial = prog;
+          });
+        }
+      },
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _descargandoRedVial = false;
+      if (!ok) _progresoRedVial = null;
+    });
+  } catch (e) {
+    if (!mounted) return;
+    setState(() {
+      _descargandoRedVial = false;
+      _progresoRedVial = null;
+      _estadoRedVial = 'Error GPS/Red: $e';
+    });
+  }
+}
 
   @override
   void initState() {
@@ -227,8 +275,66 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
               );
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          Card(
+            color: const Color(0xFF121212),
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'RED VIAL OFFLINE (RUTAS POR CALLES)',
+                    style: TextStyle(
+                      color: Color(0xFFFF6D00),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,                      
+                    ),
+                  ),
+                  if (_descargandoRedVial) ...[
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: _progresoRedVial,
+                      color: const Color(0xFF00E676),
+                      backgroundColor: const Color(0xFF222222),
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Descarga las calles y caminos (45 km alrededor de tu GPS) para calcular rutas esquina por esquina sin Internet.',
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                  if (_estadoRedVial.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      _estadoRedVial,
+                      style: const TextStyle(
+                          color: Color(0xFF00E676), fontSize: 12),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00E676),
+                      foregroundColor: Colors.black,
+                    ),
+                    onPressed:
+                        _descargandoRedVial ? null : _descargarRedVialGps,
+                    icon: const Icon(Icons.alt_route),
+                    label: Text(
+                      _descargandoRedVial
+                          ? 'DESCARGANDO CALLES (45 KM)...'
+                          : 'DESCARGAR RED VIAL (45 KM)',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
+
                 if (_categoriaSeleccionada == 'manuales') ...[
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(

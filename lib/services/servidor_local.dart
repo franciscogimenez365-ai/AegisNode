@@ -1,132 +1,179 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:shelf/shelf.dart';
-import 'package:shelf/shelf_io.dart' as io;
+import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'mesh_chat_service.dart';
-import 'nodo_config_service.dart';
 
 class ServidorLocalService {
   HttpServer? _server;
   String? _ipLocal;
+  String _rutaBase = '';
 
   bool get estaActivo => _server != null;
   String get urlAcceso =>
-      _ipLocal != null ? 'http://$_ipLocal:8080' : 'http://127.0.0.1:8080';
+      _ipLocal != null ? 'http://$_ipLocal:8080' : 'http://192.168.43.1:8080';
 
-  Future<String> _obtenerIpLocal() async {
-    try {
-      final interfaces =
-          await NetworkInterface.list(type: InternetAddressType.IPv4);
-      for (final iface in interfaces) {
-        for (final addr in iface.addresses) {
-          if (!addr.isLoopback &&
-              (addr.address.startsWith('192.168.') ||
-                  addr.address.startsWith('10.') ||
-                  addr.address.startsWith('172.'))) {
-            return addr.address;
-          }
-        }
-      }
-    } catch (_) {}
-    return '127.0.0.1';
-  }
+  Future<String> iniciarServidor(String rutaBase) async {
+    _rutaBase = rutaBase;
+    if (_server != null) return urlAcceso;
 
-  Future<void> iniciarServidor(String rutaBase) async {
-    if (_server != null) return;
     _ipLocal = await _obtenerIpLocal();
-
-    Future<Response> handler(Request request) async {
-      final config = await NodoConfigService.cargar();
-      final path = Uri.decodeComponent(request.url.path);
-
-      // Endpoint para publicar mensajes desde navegador Wi-Fi hacia la Malla
-      if (request.method == 'POST' && path == 'api/chat') {
-        if (!config.chatActivo) {
-          return Response.forbidden('Chat desactivado por el nodo');
-        }
-        final body = await request.readAsString();
-        final data = jsonDecode(body) as Map<String, dynamic>;
-        await MeshChatService.publicarMensajeLocal(
-          autor: '${data['autor'] ?? 'Web'} (WiFi)',
-          texto: data['texto']?.toString() ?? '',
-          ttlInicial: config.ttlMaximo,
-        );
-        return Response.ok('OK');
-      }
-
-      // Descarga de archivos PDF/Mapas/Wikis si está habilitada en privacidad
-      if (path.startsWith('archivos/')) {
-        if (!config.compartirArchivos) {
-          return Response.forbidden('Compartir archivos desactivado');
-        }
-        final relativo = path.substring('archivos/'.length);
-        final file = File('$rutaBase/$relativo');
-        if (await file.exists()) {
-          return Response.ok(
-            file.openRead(),
-            headers: {
-              'Content-Type': 'application/octet-stream',
-              'Content-Disposition':
-                  'attachment; filename="${file.uri.pathSegments.last}"',
-            },
-          );
-        }
-        return Response.notFound('Archivo no encontrado');
-      }
-
-      // Página principal del Portal Web AegisNode
-      final listaPdfs = <String>[];
-      if (config.compartirArchivos) {
-        final dirManuales = Directory('$rutaBase/manuales');
-        if (dirManuales.existsSync()) {
-          for (final f in dirManuales.listSync().whereType<File>()) {
-            final nombre = f.uri.pathSegments.last;
-            listaPdfs.add(
-                '<li><a href="/archivos/manuales/$nombre" style="color:#FF6D00;">$nombre</a></li>');
-          }
-        }
-      }
-
-      final htmlMensajes = config.chatActivo
-          ? MeshChatService.mensajes
-              .take(25)
-              .map((m) =>
-                  '<div style="border-bottom:1px solid #333;padding:6px 0;"><b style="color:#00E676;">${m.autor}</b>: ${m.texto}</div>')
-              .join('')
-          : '<p style="color:#888;">Chat desactivado por el operador del nodo.</p>';
-
-      final html = '''
-      <!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>AegisNode - Portal de Emergencia</title></head>
-      <body style="background:#000;color:#e0e0e0;font-family:sans-serif;padding:16px;">
-        <h2 style="color:#FF6D00;">AegisNode // ${config.alias}</h2>
-        <p style="color:#00E676;">Rol: ${config.esMaestro ? 'NODO MAESTRO' : 'REPETIDOR'} | Saltos Malla (TTL): ${config.ttlMaximo}</p>
-        ${config.chatActivo ? '''
-        <h3>Bitácora / Chat de Emergencia</h3>
-        <div style="background:#121212;padding:10px;border-radius:8px;margin-bottom:10px;">$htmlMensajes</div>
-        <input id="autor" placeholder="Tu nombre" style="padding:8px;width:30%;background:#1a1a1a;color:#fff;border:1px solid #444;">
-        <input id="msg" placeholder="Mensaje de reporte..." style="padding:8px;width:45%;background:#1a1a1a;color:#fff;border:1px solid #444;">
-        <button onclick="enviar()" style="padding:8px 12px;background:#FF6D00;color:#000;font-weight:bold;border:none;">Enviar</button>
-        <script>
-          async function enviar(){
-            const a=document.getElementById('autor').value||'Vecino';
-            const t=document.getElementById('msg').value;
-            if(!t)return;
-            await fetch('/api/chat',{method:'POST',body:JSON.stringify({autor:a,texto:t})});
-            location.reload();
-          }
-        </script>''' : ''}
-        ${config.compartirArchivos ? '<h3>Manuales Disponibles Offline</h3><ul>${listaPdfs.isEmpty ? '<li>Sin archivos en carpeta manuales</li>' : listaPdfs.join('')}</ul>' : ''}
-      </body></html>''';
-
-      return Response.ok(html, headers: {'Content-Type': 'text/html; charset=utf-8'});
-    }
-
-    _server = await io.serve(handler, InternetAddress.anyIPv4, 8080);
+    final handler = const Pipeline().addHandler(_enrutarPeticion);
+    _server = await shelf_io.serve(handler, InternetAddress.anyIPv4, 8080);
+    return urlAcceso;
   }
 
   Future<void> detenerServidor() async {
     await _server?.close(force: true);
     _server = null;
+  }
+
+  Future<String> _obtenerIpLocal() async {
+    try {
+      final interfaces =
+          await NetworkInterface.list(type: InternetAddressType.IPv4);
+      // Priorizamos interfaces típicas de Hotspot Android (ap0, wlan1, swlan0)
+      for (final iface in interfaces) {
+        final nombre = iface.name.toLowerCase();
+        if (nombre.contains('ap') ||
+            nombre.contains('swlan') ||
+            nombre.contains('wlan1')) {
+          for (final addr in iface.addresses) {
+            if (!addr.isLoopback) return addr.address;
+          }
+        }
+      }
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (!addr.isLoopback) return addr.address;
+        }
+      }
+    } catch (_) {}
+    return '192.168.43.1';
+  }
+
+  String _generarListaArchivos(String subcarpeta, String tituloVacio) {
+    final dir = Directory('$_rutaBase/$subcarpeta');
+    if (!dir.existsSync()) return '<li>$tituloVacio</li>';
+
+    final archivos = dir
+        .listSync()
+        .whereType<File>()
+        .where((f) => !f.path.split('/').last.startsWith('.'))
+        .toList();
+
+    if (archivos.isEmpty) return '<li>$tituloVacio</li>';
+
+    return archivos.map((f) {
+      final nombre = f.path.split('/').last;
+      final mb = (f.lengthSync() / (1024 * 1024)).toStringAsFixed(1);
+      final encoded = Uri.encodeComponent(nombre);
+      return '<li><a href="/archivo/$subcarpeta/$encoded">$nombre</a> <span style="color:#888;font-size:12px;">($mb MB)</span></li>';
+    }).join('');
+  }
+
+  Future<Response> _enrutarPeticion(Request request) async {
+    final path = request.url.path;
+
+    if (path == '' || path == '/') {
+      final htmlManuales =
+          _generarListaArchivos('manuales', 'Sin manuales PDF aún.');
+      final htmlMapas =
+          _generarListaArchivos('mapas', 'Sin mapas MBTiles descargados aún.');
+      final htmlWikis =
+          _generarListaArchivos('wikis', 'Sin enciclopedias ZIM aún.');
+
+      final htmlMensajes = MeshChatService.mensajes
+          .where((m) => !m.esPrivado) // Solo mostramos el canal abierto público
+          .map((m) =>
+              '<div class="msg"><b>[${m.autor}]</b> ${m.texto} ${m.gps != null ? "<br><small>📍 ${m.gps}</small>" : ""}</div>')
+          .join('');
+
+      final html = '''
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AegisNode // Portal Local</title>
+<style>
+  body { background:#000; color:#e0e0e0; font-family:sans-serif; margin:0; padding:16px; }
+  h1 { color:#FF6D00; font-size:20px; border-bottom:1px solid #333; padding-bottom:8px; }
+  h2 { color:#00E676; font-size:15px; margin-top:20px; border-left:3px solid #FF6D00; padding-left:8px; }
+  .card { background:#121212; border:1px solid #2a2a2a; border-radius:8px; padding:12px; margin-bottom:16px; }
+  input, button { width:100%; box-sizing:border-box; padding:12px; margin-top:8px; border-radius:6px; border:1px solid #444; background:#1c1c1c; color:#fff; font-size:15px; }
+  button { background:#FF6D00; color:#000; font-weight:bold; border:none; cursor:pointer; }
+  .msg { padding:8px; border-bottom:1px solid #222; font-size:14px; }
+  li { margin:8px 0; }
+  a { color:#00E676; text-decoration:none; word-break:break-all; }
+</style>
+</head>
+<body>
+  <h1>AEGISNODE // PORTAL OFFLINE LOCAL</h1>
+  <div class="card">
+    <h2>Bitácora Comunitaria (Canal Abierto)</h2>
+    <form method="POST" action="/enviar">
+      <input type="text" name="autor" placeholder="Tu Nombre / Indicativo" required>
+      <input type="text" name="texto" placeholder="Escribe mensaje o reporte..." required>
+      <button type="submit">TRANSMITIR A LA MALLA</button>
+    </form>
+    <div style="margin-top:12px; max-height:260px; overflow-y:auto;">$htmlMensajes</div>
+  </div>
+  <div class="card">
+    <h2>Manuales PDF Disponibles</h2>
+    <ul>$htmlManuales</ul>
+  </div>
+  <div class="card">
+    <h2>Mapas Offline (.mbtiles)</h2>
+    <ul>$htmlMapas</ul>
+  </div>
+  <div class="card">
+    <h2>Enciclopedias Offline (.zim)</h2>
+    <ul>$htmlWikis</ul>
+  </div>
+</body>
+</html>
+''';
+      return Response.ok(html,
+          headers: {'Content-Type': 'text/html; charset=utf-8'});
+    }
+
+    if (path == 'enviar' && request.method == 'POST') {
+      final body = await request.readAsString();
+      final params = Uri.splitQueryString(body);
+      final autor = params['autor']?.trim() ?? 'Web-Local';
+      final texto = params['texto']?.trim() ?? '';
+      if (texto.isNotEmpty) {
+        await MeshChatService.publicarMensajeLocal(
+          autor: '$autor (WiFi)',
+          texto: texto,
+          ttlInicial: 7,
+        );
+      }
+      return Response.found('/');
+    }
+
+    if (path.startsWith('archivo/')) {
+      final partes = path.split('/');
+      if (partes.length >= 3) {
+        final carpeta = partes[1];
+        if (carpeta == 'manuales' || carpeta == 'mapas' || carpeta == 'wikis') {
+          final nombre = Uri.decodeComponent(partes.sublist(2).join('/'));
+          final file = File('$_rutaBase/$carpeta/$nombre');
+          if (await file.exists()) {
+            final tamano = await file.length();
+            return Response.ok(
+              file.openRead(),
+              headers: {
+                'Content-Type': 'application/octet-stream',
+                'Content-Length': '$tamano',
+                'Content-Disposition': 'attachment; filename="$nombre"',
+              },
+            );
+          }
+        }
+      }
+    }
+
+    return Response.notFound('Recurso no encontrado');
   }
 }

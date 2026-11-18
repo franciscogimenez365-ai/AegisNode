@@ -6,6 +6,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
+import '../services/mesh_chat_service.dart';
+import '../services/nodo_config_service.dart';
+import '../services/waypoints_service.dart';
+import '../services/enrutador_offline_service.dart';
+
+
 
 
 class MapasScreen extends StatefulWidget {
@@ -22,16 +28,25 @@ class _MapasScreenState extends State<MapasScreen> {
   MbTilesTileProvider? _tileProvider;
   List<File> _archivosMbtiles = [];
   String? _rutaMapaActivo;
-  LatLng _ubicacionActual = const LatLng(-34.7056, -58.2578);
+  LatLng _ubicacionActual = const LatLng(0.0, 0.0);
   String _infoGps = 'GPS en espera';
   bool _gpsObtenido = false;
   bool _cargandoMapa = false;
+  List<WaypointTactico> _waypoints = [];
+  WaypointTactico? _destinoGuiado;
+  ResultadoRuta? _rutaActiva;
+
 
   @override
   void initState() {
     super.initState();
     _escanearMapas();
     _obtenerGps();
+    _cargarWaypoints();
+  }
+    Future<void> _cargarWaypoints() async {
+    final lista = await WaypointsService.cargar(widget.rutaMapas);
+    if (mounted) setState(() => _waypoints = lista);
   }
   @override
   void didUpdateWidget(covariant MapasScreen oldWidget) {
@@ -39,8 +54,16 @@ class _MapasScreenState extends State<MapasScreen> {
     if (widget.coordenadaDestino != null &&
         widget.coordenadaDestino != oldWidget.coordenadaDestino) {
       _mapController.move(widget.coordenadaDestino!, 15.0);
+      _iniciarGuiadoHacia(WaypointTactico(
+        id: 'chat_dest',
+        nombre: 'Coordenada Malla',
+        tipo: 'auxilio',
+        lat: widget.coordenadaDestino!.latitude,
+        lon: widget.coordenadaDestino!.longitude,
+      ));
     }
   }
+
 
   Future<void> _escanearMapas() async {
     final dir = Directory(widget.rutaMapas);
@@ -171,6 +194,175 @@ class _MapasScreenState extends State<MapasScreen> {
       setState(() => _infoGps = 'Error GPS: $e');
     }
   }
+
+  Future<void> _crearWaypointEn(LatLng punto) async {
+    final nombreCtrl = TextEditingController();
+    String tipoSel = 'base';
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          backgroundColor: const Color(0xFF121212),
+          title: const Text('NUEVO WAYPOINT TÁCTICO',
+              style: TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nombreCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre (ej. Campamento, Agua, Peligro)',
+                  filled: true,
+                  fillColor: Color(0xFF1A1A1A),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButton<String>(
+                value: tipoSel,
+                isExpanded: true,
+                dropdownColor: const Color(0xFF1A1A1A),
+                items: const [
+                  DropdownMenuItem(value: 'base', child: Text('🏕️ Campamento / Base')),
+                  DropdownMenuItem(value: 'agua', child: Text('💧 Agua Potable / Recurso')),
+                  DropdownMenuItem(value: 'peligro', child: Text('⚠️ Peligro / Zona Bloqueada')),
+                  DropdownMenuItem(value: 'auxilio', child: Text('🏥 Punto Médico / Auxilio')),
+                ],
+                onChanged: (v) {
+                  if (v != null) setDlgState(() => tipoSel = v);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E676),
+                  foregroundColor: Colors.black),
+              onPressed: () async {
+                final nombre = nombreCtrl.text.trim().isEmpty
+                    ? 'Marcador ${punto.latitude.toStringAsFixed(3)}'
+                    : nombreCtrl.text.trim();
+                final nuevo = WaypointTactico(
+                  id: '${DateTime.now().millisecondsSinceEpoch}',
+                  nombre: nombre,
+                  tipo: tipoSel,
+                  lat: punto.latitude,
+                  lon: punto.longitude,
+                );
+                _waypoints.add(nuevo);
+                await WaypointsService.guardarLista(widget.rutaMapas, _waypoints);
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                setState(() {});
+              },
+              child: const Text('GUARDAR'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  Future<void> _iniciarGuiadoHacia(WaypointTactico wp) async {
+  setState(() {
+    _destinoGuiado = wp;
+    _rutaActiva = null;
+  });
+  await _obtenerGps();
+  final ruta = await EnrutadorOfflineService.calcularRutaHibrida(
+    rutaMapas: widget.rutaMapas,
+    origen: _ubicacionActual,
+    destino: LatLng(wp.lat, wp.lon),
+  );
+  if (mounted) setState(() => _rutaActiva = ruta);
+}
+
+
+  void _abrirDetalleWaypoint(WaypointTactico wp) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF121212),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(wp.nombre,
+                style: const TextStyle(
+                    color: Color(0xFFFF6D00),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16)),
+            const SizedBox(height: 4),
+            Text(
+                'Coordenadas: ${wp.lat.toStringAsFixed(6)}, ${wp.lon.toStringAsFixed(6)}',
+                style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF6D00),
+                  foregroundColor: Colors.black),
+              icon: const Icon(Icons.alt_route),
+              label: const Text('GUIAR DESDE MI UBICACIÓN',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () {
+                Navigator.pop(ctx);
+                _iniciarGuiadoHacia(wp);
+              },
+            ),
+            const SizedBox(height: 8),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E676),
+                  foregroundColor: Colors.black),
+              icon: const Icon(Icons.share_location),
+              label: const Text('TRANSMITIR WAYPOINT A LA MALLA BLE',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              onPressed: () async {
+                final cfg = await NodoConfigService.cargar();
+                final alias =
+                    cfg.alias.trim().isEmpty ? 'Explorador' : cfg.alias.trim();
+                await MeshChatService.publicarMensajeLocal(
+                  autor: alias,
+                  texto: '📌 WAYPOINT [${wp.tipo.toUpperCase()}]: ${wp.nombre}',
+                  ttlInicial: cfg.ttlMaximo,
+                  gps:
+                      '${wp.lat.toStringAsFixed(6)},${wp.lon.toStringAsFixed(6)}',
+                );
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    backgroundColor: Color(0xFF00E676),
+                    content: Text('Waypoint transmitido a la malla.',
+                        style: TextStyle(color: Colors.black)),
+                  ),
+                );
+              },
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              label: const Text('Eliminar Marcador',
+                  style: TextStyle(color: Colors.redAccent)),
+              onPressed: () async {
+                _waypoints.removeWhere((item) => item.id == wp.id);
+                await WaypointsService.guardarLista(widget.rutaMapas, _waypoints);
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                setState(() {});
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
   @override
   void dispose() {
     _tileProvider?.dispose();
@@ -209,6 +401,17 @@ class _MapasScreenState extends State<MapasScreen> {
                 },
               ),
               IconButton(
+                icon: const Icon(Icons.add_location_alt,
+                    color: Color(0xFFFF6D00), size: 20),
+                tooltip: 'Marcar Waypoint aquí',
+                onPressed: () {
+                  final objetivo = _tileProvider != null
+                      ? _mapController.camera.center
+                      : _ubicacionActual;
+                  _crearWaypointEn(objetivo);
+                },
+              ),
+              IconButton(
                 icon: const Icon(Icons.refresh, size: 20),
                 tooltip: 'Recargar mapas',
                 onPressed: _escanearMapas,
@@ -216,6 +419,69 @@ class _MapasScreenState extends State<MapasScreen> {
             ],
           ),
         ),
+        if (_destinoGuiado != null)
+          Builder(
+            builder: (context) {
+              final distMetros = Geolocator.distanceBetween(
+                _ubicacionActual.latitude,
+                _ubicacionActual.longitude,
+                _destinoGuiado!.lat,
+                _destinoGuiado!.lon,
+              );
+              final rumboGrados = ((Geolocator.bearingBetween(
+                            _ubicacionActual.latitude,
+                            _ubicacionActual.longitude,
+                            _destinoGuiado!.lat,
+                            _destinoGuiado!.lon,
+                          ) +
+                          360) %
+                      360)
+                  .round();
+              final distStr = distMetros >= 1000
+                  ? '${(distMetros / 1000).toStringAsFixed(2)} km'
+                  : '${distMetros.round()} m';
+              final modoTexto = _rutaActiva == null
+                  ? 'Calculando ruta...'
+                  : _rutaActiva!.origenDato;
+
+              return Container(
+                color: const Color(0xFF1A1A1A),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(
+                      _rutaActiva?.esPorCalles == true
+                          ? Icons.alt_route
+                          : Icons.explore,
+                      color: const Color(0xFF00E676),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${_destinoGuiado!.nombre} • $distStr • $rumboGrados°\n$modoTexto',
+                        style: const TextStyle(
+                          color: Color(0xFF00E676),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close,
+                          color: Colors.redAccent, size: 18),
+                      onPressed: () => setState(() {
+                        _destinoGuiado = null;
+                        _rutaActiva = null;
+                      }),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+
         if (_archivosMbtiles.length > 1)
           Container(
             color: const Color(0xFF1A1A1A),
@@ -269,20 +535,38 @@ class _MapasScreenState extends State<MapasScreen> {
                     )
                   : FlutterMap(
                       mapController: _mapController,
-                      options: const MapOptions(
-                        initialCenter: LatLng(0, 0),
+                      options: MapOptions(
+                        initialCenter: const LatLng(0, 0),
                         initialZoom: 2.0,
                         minZoom: 0.0,
                         maxZoom: 18.0,
-                        backgroundColor: Color(0xFF000000),
+                        backgroundColor: const Color(0xFF000000),
+                        interactionOptions: const InteractionOptions(
+                          flags: InteractiveFlag.all,
+                        ),
+                        onLongPress: (tapPos, punto) =>
+                            _crearWaypointEn(punto),
                       ),
                       children: [
                         TileLayer(
                           tileProvider: _tileProvider!,
                         ),
-                        if (_gpsObtenido)
-                          MarkerLayer(
-                            markers: [
+                        if (_rutaActiva != null &&
+                            _rutaActiva!.puntos.length >= 2)
+                          PolylineLayer(
+                            polylines: [
+                              Polyline(
+                                points: _rutaActiva!.puntos,
+                                color: _rutaActiva!.esPorCalles
+                                    ? const Color(0xFF00E676)
+                                    : const Color(0xFFFF6D00),
+                                strokeWidth: 4.5,
+                              ),
+                            ],
+                          ),
+                        MarkerLayer(
+                          markers: [
+                            if (_gpsObtenido)
                               Marker(
                                 point: _ubicacionActual,
                                 width: 40,
@@ -293,8 +577,66 @@ class _MapasScreenState extends State<MapasScreen> {
                                   size: 32,
                                 ),
                               ),
-                            ],
-                          ),
+                            if (widget.coordenadaDestino != null)
+                              Marker(
+                                point: widget.coordenadaDestino!,
+                                width: 44,
+                                height: 44,
+                                child: const Icon(
+                                  Icons.location_on,
+                                  color: Color(0xFF00E676),
+                                  size: 38,
+                                ),
+                              ),
+                            ..._waypoints.map(
+                              (wp) => Marker(
+                                point: LatLng(wp.lat, wp.lon),
+                                width: 110,
+                                height: 54,
+                                child: GestureDetector(
+                                  onTap: () => _abrirDetalleWaypoint(wp),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 5, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black87,
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                          border: Border.all(
+                                              color: const Color(0xFFFF6D00)),
+                                        ),
+                                        child: Text(
+                                          wp.nombre,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                      Icon(
+                                        wp.tipo == 'peligro'
+                                            ? Icons.warning_amber_rounded
+                                            : wp.tipo == 'agua'
+                                                ? Icons.water_drop
+                                                : wp.tipo == 'auxilio'
+                                                    ? Icons.local_hospital
+                                                    : Icons.flag,
+                                        color: wp.tipo == 'peligro'
+                                            ? Colors.redAccent
+                                            : const Color(0xFFFF6D00),
+                                        size: 26,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
         ),

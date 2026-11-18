@@ -395,6 +395,69 @@ class MainActivity : FlutterActivity() {
                     } catch (_: Throwable) {}
                     result.success(true)
                 }
+                "obtenerBateria" -> {
+                    try {
+                        val bm = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+                        val nivel = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                        result.success(nivel)
+                    } catch (_: Throwable) {
+                        result.success(-1)
+                    }
+                }
+                "cifrarAes" -> {
+                    val texto = call.argument<String>("texto") ?: ""
+                    val clave = call.argument<String>("clave") ?: ""
+                    try {
+                        val digest = java.security.MessageDigest.getInstance("SHA-256")
+                        val keyBytes = digest.digest(clave.toByteArray(Charsets.UTF_8))
+                        val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
+
+                        val iv = ByteArray(12)
+                        java.security.SecureRandom().nextBytes(iv)
+                        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secretKey, javax.crypto.spec.GCMParameterSpec(128, iv))
+                        val cifrado = cipher.doFinal(texto.toByteArray(Charsets.UTF_8))
+
+                        val combinado = ByteArray(iv.size + cifrado.size)
+                        System.arraycopy(iv, 0, combinado, 0, iv.size)
+                        System.arraycopy(cifrado, 0, combinado, iv.size, cifrado.size)
+                        val b64 = android.util.Base64.encodeToString(combinado, android.util.Base64.NO_WRAP)
+                        result.success("ENC:v1:$b64")
+                    } catch (t: Throwable) {
+                        result.error("AES_ENC_ERR", t.message, null)
+                    }
+                }
+                "descifrarAes" -> {
+                    val payload = call.argument<String>("payload") ?: ""
+                    val clave = call.argument<String>("clave") ?: ""
+                    try {
+                        if (!payload.startsWith("ENC:v1:") || clave.isEmpty()) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        val b64 = payload.removePrefix("ENC:v1:")
+                        val combinado = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+                        if (combinado.size < 13) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        val iv = combinado.copyOfRange(0, 12)
+                        val cifrado = combinado.copyOfRange(12, combinado.size)
+
+                        val digest = java.security.MessageDigest.getInstance("SHA-256")
+                        val keyBytes = digest.digest(clave.toByteArray(Charsets.UTF_8))
+                        val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
+
+                        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                        cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, javax.crypto.spec.GCMParameterSpec(128, iv))
+                        val plano = String(cipher.doFinal(cifrado), Charsets.UTF_8)
+                        result.success(plano)
+                    } catch (_: Throwable) {
+                        // Si la contraseña no coincide o el paquete es de otro grupo, devuelve null
+                        result.success(null)
+                    }
+                }
+
                 else -> result.notImplemented()
             }
         }

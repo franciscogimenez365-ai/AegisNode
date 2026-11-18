@@ -6,10 +6,20 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'mesh_chat_service.dart';
 import 'nodo_config_service.dart';
 
-class _VecinoActivo {
+class NodoVecinoInfo {
+  final String clave;
+  final String alias;
   final BluetoothDevice device;
+  int rssi;
   DateTime ultimaVezVisto;
-  _VecinoActivo(this.device, this.ultimaVezVisto);
+
+  NodoVecinoInfo({
+    required this.clave,
+    required this.alias,
+    required this.device,
+    required this.rssi,
+    required this.ultimaVezVisto,
+  });
 }
 
 class BleMeshService {
@@ -23,7 +33,7 @@ class BleMeshService {
   static bool _activo = false;
   static NodoConfig? _configActual;
   static StreamSubscription<List<ScanResult>>? _scanSub;
-  static final Map<String, _VecinoActivo> _vecinos = {};
+  static final Map<String, NodoVecinoInfo> _vecinos = {};
   static final StreamController<int> _vecinosCtrl =
       StreamController<int>.broadcast();
 
@@ -37,10 +47,17 @@ class BleMeshService {
     return _vecinos.length;
   }
 
+  static List<NodoVecinoInfo> get listaVecinosActivos {
+    _limpiarVecinosExpirados();
+    final lista = _vecinos.values.toList();
+    lista.sort((a, b) => b.rssi.compareTo(a.rssi)); // Ordena del más cercano al más lejano
+    return lista;
+  }
+
   static Stream<int> get streamVecinos => _vecinosCtrl.stream;
 
   static void _limpiarVecinosExpirados() {
-    final limite = DateTime.now().subtract(const Duration(seconds: 60));
+    final limite = DateTime.now().subtract(const Duration(seconds: 25));
     final antes = _vecinos.length;
     _vecinos.removeWhere((_, v) => v.ultimaVezVisto.isBefore(limite));
     if (_vecinos.length != antes) {
@@ -75,17 +92,23 @@ class BleMeshService {
             final esPropio = autor.trim().toLowerCase() ==
                 (_configActual?.alias.trim().toLowerCase() ?? '');
 
+            final esCifrado = texto.startsWith('ENC:v1:');
+            final tieneClave =
+                (_configActual?.claveGrupo.trim().isNotEmpty ?? false);
+
             await MeshChatService.recibirPaqueteExterno(mapa);
 
             if (!yaVisto &&
                 !esPropio &&
-                _configActual?.notificarMensajes == true) {
+                _configActual?.notificarMensajes == true &&
+                (!esCifrado || tieneClave)) {
               await _bleChannel.invokeMethod('notificarMensaje', {
                 'autor': autor.isEmpty ? 'Nodo' : autor,
-                'cuerpo': texto,
+                'cuerpo': esCifrado ? '🔒 Mensaje privado de grupo' : texto,
               });
             }
-          } catch (e) {MeshChatService.publicarAvisoSistema('Error leyendo paquete: $e');}
+
+          } catch (_) {}
         }
       } else if (call.method == 'abrirPestanaNodo') {
         onAbrirPestanaNodo?.call();
@@ -103,9 +126,26 @@ class BleMeshService {
       for (final r in resultados) {
         final mData = r.advertisementData.manufacturerData[manufacturerId];
         if (mData != null && mData.isNotEmpty) {
-          final idDispositivo = r.device.remoteId.str;
-          final eraNuevo = !_vecinos.containsKey(idDispositivo);
-          _vecinos[idDispositivo] = _VecinoActivo(r.device, DateTime.now());
+          String claveVecino = r.device.remoteId.str;
+          String aliasMostrar = 'Nodo (${r.device.remoteId.str.substring(0, 5)})';
+
+          if (mData.first == 0x01 && mData.length > 1) {
+            final aliasLeido =
+                utf8.decode(mData.sublist(1), allowMalformed: true).trim();
+            if (aliasLeido.isNotEmpty) {
+              claveVecino = 'alias_$aliasLeido';
+              aliasMostrar = aliasLeido;
+            }
+          }
+
+          final eraNuevo = !_vecinos.containsKey(claveVecino);
+          _vecinos[claveVecino] = NodoVecinoInfo(
+            clave: claveVecino,
+            alias: aliasMostrar,
+            device: r.device,
+            rssi: r.rssi,
+            ultimaVezVisto: DateTime.now(),
+          );
           if (eraNuevo) {
             _vecinosCtrl.add(_vecinos.length);
           }
@@ -220,6 +260,7 @@ class BleMeshService {
                         : payloadBytes.length;
                     final chunk = payloadBytes.sublist(offset, fin);
                     await c.write(chunk, withoutResponse: false);
+                    await Future.delayed(const Duration(milliseconds: 30));
                   }
                   enviado = true;
                 }
@@ -229,9 +270,9 @@ class BleMeshService {
         } catch (e) {
           if (intento == 1 && !enviado) {
             MeshChatService.publicarAvisoSistema(
-                'No se pudo entregar a vecino: $e');
+                'No se pudo entregar a ${vecino.alias}: $e');
           }
-          await Future.delayed(const Duration(milliseconds: 400));
+          await Future.delayed(const Duration(milliseconds: 450));
         } finally {
           try {
             await device.disconnect();

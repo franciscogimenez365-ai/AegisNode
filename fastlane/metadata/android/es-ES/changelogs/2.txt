@@ -1,0 +1,6 @@
+• Estabilidad BLE en Android antiguos (deduplicación por alias y control anti-congestión error 147).
+• Radar visual de nodos vecinos con señal en dBm.
+• Baliza SOS de emergencia con telemetría de batería y GPS continuo.
+• Canal Híbrido con cifrado AES-256-GCM (Canal Abierto y Grupo Privado).
+• Waypoints tácticos y enrutamiento callejero offline (A*) en 45 km con respaldo por rumbo.
+• Portal Web Wi-Fi ampliado para compartir mapas, red vial y enciclopedias ZIM.

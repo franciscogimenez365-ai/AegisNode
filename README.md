@@ -28,6 +28,15 @@
 * Visor integrado y gestor de documentos técnicos, protocolos y guías personales almacenados localmente en `/storage/emulated/0/AegisNode/manuales`.
 
 ---
+## Novedades de la Versión 1.0.1
+
+* **Estabilidad Multi-Dispositivo (Android 8–15):** Deduplicación real de nodos vecinos por indicativo/alias (evitando conteos duplicados por rotación de direcciones MAC) y control anti-congestión GATT (`30 ms` entre tramas) para eliminar el `error 147` en chips Bluetooth 4.2 antiguos.
+* **Radar Visual de Vecinos (`RSSI`):** Al tocar el contador de vecinos activos en la malla BLE, se despliega la lista en tiempo real con el alias de cada nodo, el tiempo desde su último contacto y la intensidad de señal en decibelios (`dBm` + estado *Cerca / Medio / Al límite*).
+* **Baliza SOS Rápida con Telemetría (`SOS // EMERGENCIA`):** Botón táctico activable con pulsación mantenida de 2 segundos que enciende la malla BLE automáticamente, captura el porcentaje real de batería y coordenadas GPS de alta precisión, y transmite una alerta prioritaria (`TTL 20`) cada 2 minutos hasta su desactivación.
+* **Canal Híbrido con Cifrado AES-256-GCM:** Permite configurar una *Clave de Grupo* opcional para separar la vista en **Canal Abierto** y **Grupo Privado 🔒**. Los nodos sin clave continúan retransmitiendo los paquetes cifrados como puentes ciegos (*Blind Relay*) sin fragmentar la red comunitaria.
+* **Waypoints Tácticos y Enrutamiento Callejero Offline (45 km):** Permite guardar marcadores persistentes sobre el mapa offline (campamento, agua, peligro, auxilio), compartirlos por la malla BLE y calcular rutas esquina por esquina sin Internet mediante algoritmo **A\*** sobre la red vial local descargada en 4 cuadrantes (45 km a la redonda), con respaldo automático de guiado directo por rumbo y distancia.
+* **Portal Web Wi-Fi Ampliado:** Ahora permite descargar por streaming directo desde el navegador no solo manuales PDF, sino también mapas `.mbtiles`, enciclopedias `.zim`, la red vial offline (`red_vial.json`) y los marcadores tácticos (`waypoints.json`) entre dispositivos cercanos.
+
 
 ## Guía Rápida de Uso
 

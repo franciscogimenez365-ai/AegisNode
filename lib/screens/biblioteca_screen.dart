@@ -75,7 +75,7 @@ class _BibliotecaScreenState extends State<BibliotecaScreen> {
           child: _archivosFiltrados.isEmpty
               ? const Center(
                   child: Text(
-                    'No hay manuales PDF en /PocketNomad/manuales.\nCopia archivos allí y toca recargar.',
+                    'No hay manuales PDF en /PocketAegis/manuales.\nCopia archivos allí y toca recargar.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey),
                   ),

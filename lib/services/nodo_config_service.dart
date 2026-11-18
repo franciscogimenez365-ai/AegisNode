@@ -10,6 +10,7 @@ enum PerfilEnergiaMesh {
 
 class NodoConfig {
   String alias;
+  String claveGrupo;
   bool esMaestro;
   int ttlMaximo;
   PerfilEnergiaMesh perfilEnergia;
@@ -21,6 +22,7 @@ class NodoConfig {
 
   NodoConfig({
     this.alias = '',
+    this.claveGrupo = '',
     this.esMaestro = true,
     this.ttlMaximo = 7,
     this.perfilEnergia = PerfilEnergiaMesh.equilibrado,
@@ -45,6 +47,7 @@ class NodoConfig {
 
   Map<String, dynamic> toJson() => {
         'alias': alias,
+        'claveGrupo': claveGrupo,
         'esMaestro': esMaestro,
         'ttlMaximo': ttlMaximo,
         'perfilEnergia': perfilEnergia.index,
@@ -60,6 +63,7 @@ class NodoConfig {
         .clamp(0, PerfilEnergiaMesh.values.length - 1);
     return NodoConfig(
       alias: json['alias']?.toString() ?? '',
+      claveGrupo: json['claveGrupo']?.toString() ?? '',
       esMaestro: json['esMaestro'] as bool? ?? true,
       ttlMaximo: (json['ttlMaximo'] as int? ?? 7).clamp(1, 20),
       perfilEnergia: PerfilEnergiaMesh.values[idx],
