@@ -1,0 +1,5 @@
+• Flecha de ubicación dinámica en tiempo real con brújula magnetométrica.
+• Mensajes importantes (📌) con sincronización automática entre nodos y Buzón Muerto (Dead Drop).
+• Intercambio inteligente de mapas y red vial (45 km) con descarga directa en 1 toque desde el chat.
+• Grabador y gestor de rastros GPX (activar/desactivar, renombrar y eliminar).
+• Mensajes de voz ultra-comprimidos (Audio PTT 4s) por malla BLE y Wi-Fi.

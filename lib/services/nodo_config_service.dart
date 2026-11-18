@@ -19,6 +19,9 @@ class NodoConfig {
   bool compartirArchivos;
   bool permitirSubidaArchivos;
   bool notificarMensajes; // Apagado por defecto para evitar saturación en grupos grandes
+  bool syncMapasYRutas;
+  bool syncWaypointsPersonales;
+
 
   NodoConfig({
     this.alias = '',
@@ -31,6 +34,8 @@ class NodoConfig {
     this.compartirArchivos = true,
     this.permitirSubidaArchivos = false,
     this.notificarMensajes = false,
+    this.syncMapasYRutas = true,
+    this.syncWaypointsPersonales = false,
   });
 
 
@@ -56,6 +61,9 @@ class NodoConfig {
         'compartirArchivos': compartirArchivos,
         'permitirSubidaArchivos': permitirSubidaArchivos,
         'notificarMensajes': notificarMensajes,
+        'syncMapasYRutas': syncMapasYRutas,
+        'syncWaypointsPersonales': syncWaypointsPersonales,
+
       };
 
   factory NodoConfig.fromJson(Map<String, dynamic> json) {
@@ -72,6 +80,9 @@ class NodoConfig {
       compartirArchivos: json['compartirArchivos'] as bool? ?? true,
       permitirSubidaArchivos: json['permitirSubidaArchivos'] as bool? ?? false,
       notificarMensajes: json['notificarMensajes'] as bool? ?? false,
+      syncMapasYRutas: json['syncMapasYRutas'] ?? true,
+      syncWaypointsPersonales: json['syncWaypointsPersonales'] ?? false,
+
     );
   }
 }

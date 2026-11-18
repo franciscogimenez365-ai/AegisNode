@@ -18,23 +18,30 @@ class ResultadoRuta {
 }
 
 class EnrutadorOfflineService {
-  /// Descarga la red de calles/caminos de OpenStreetMap con timeout largo y progreso real
+  /// Descarga la red vial completa de 45 km a la redonda dividida en 4 cuadrantes
   static Future<bool> descargarRedVialLocal({
     required String rutaMapas,
     required double lat,
     required double lon,
-    double radioKm = 15.0,
+    double radioKm = 45.0,
     void Function(String estado, double? progreso)? onProgreso,
   }) async {
-    final radioMetros = (radioKm * 1000).round();
-    final query = '''
-[out:json][timeout:110];
-(
-  way["highway"~"motorway|trunk|primary|secondary|tertiary|unclassified|residential|track|path"](around:$radioMetros,$lat,$lon);
-);
-(._;>;);
-out skel qt;
-''';
+    // Conversión de km a grados aproximados para armar la caja de 45 km a la redonda
+    final dLat = radioKm / 111.32;
+    final dLon = radioKm / (111.32 * cos(lat * pi / 180.0).abs().clamp(0.2, 1.0));
+
+    final minLat = lat - dLat;
+    final maxLat = lat + dLat;
+    final minLon = lon - dLon;
+    final maxLon = lon + dLon;
+
+    // Dividimos el área total de 90x90 km en 4 cuadrantes para evitar límites de RAM en Overpass
+    final cuadrantes = <List<double>>[
+      [minLat, minLon, lat, lon], // Suroeste
+      [minLat, lon, lat, maxLon], // Sureste
+      [lat, minLon, maxLat, lon], // Noroeste
+      [lat, lon, maxLat, maxLon], // Noreste
+    ];
 
     final hosts = [
       'overpass-api.de',
@@ -52,94 +59,119 @@ out skel qt;
       },
     ));
 
-    for (final host in hosts) {
-      try {
-        onProgreso?.call(
-          'Consultando $host (${radioKm.round()} km). El servidor puede tardar 15-45s...',
-          null,
-        );
+    final Map<String, List<double>> nodosTotales = {};
+    final List<List<String>> viasTotales = [];
 
-        final url = 'https://$host/api/interpreter';
-        final res = await dio.post<String>(
-          url,
-          data: {'data': query},
-          onReceiveProgress: (recibidos, total) {
-            final mb = (recibidos / (1024 * 1024)).toStringAsFixed(2);
-            if (total > 0) {
-              final pct = (recibidos / total).clamp(0.0, 1.0);
-              onProgreso?.call(
-                'Descargando calles: ${(pct * 100).toStringAsFixed(0)}% ($mb MB)',
-                pct,
-              );
-            } else {
-              onProgreso?.call('Descargando calles: $mb MB recibidos...', null);
-            }
-          },
-        );
+    for (int idx = 0; idx < cuadrantes.length; idx++) {
+      final box = cuadrantes[idx];
+      final bboxStr = '${box[0]},${box[1]},${box[2]},${box[3]}';
+      final query = '''
+[out:json][timeout:110];
+(
+  way["highway"~"motorway|trunk|primary|secondary|tertiary|unclassified|residential|track|path"]($bboxStr);
+);
+(._;>;);
+out skel qt;
+''';
 
-        if (res.statusCode != 200 || res.data == null) {
+      bool sectorOk = false;
+      for (final host in hosts) {
+        try {
+          final baseProg = idx / cuadrantes.length;
           onProgreso?.call(
-            '$host respondió HTTP ${res.statusCode}, probando respaldo...',
-            null,
+            'Sector ${idx + 1}/4 (${radioKm.round()} km): consultando $host...',
+            baseProg,
           );
-          continue;
-        }
 
-        onProgreso?.call('Indexando intersecciones para enrutamiento A*...', 1.0);
-        final decoded = jsonDecode(res.data!) as Map<String, dynamic>;
-        final elements = decoded['elements'] as List<dynamic>? ?? [];
+          final url = 'https://$host/api/interpreter';
+          final res = await dio.post<String>(
+            url,
+            data: {'data': query},
+            onReceiveProgress: (recibidos, total) {
+              final mb = (recibidos / (1024 * 1024)).toStringAsFixed(2);
+              final subProg = total > 0
+                  ? (baseProg + (recibidos / total) * (1.0 / cuadrantes.length))
+                      .clamp(0.0, 0.99)
+                  : null;
+              onProgreso?.call(
+                'Sector ${idx + 1}/4: descargando calles ($mb MB)...',
+                subProg,
+              );
+            },
+          );
 
-        final Map<String, List<double>> nodos = {};
-        final List<List<String>> vias = [];
-
-        for (final el in elements) {
-          final tipo = el['type'];
-          if (tipo == 'node') {
-            final id = el['id'].toString();
-            final nLat = (el['lat'] as num).toDouble();
-            final nLon = (el['lon'] as num).toDouble();
-            nodos[id] = [nLat, nLon];
-          } else if (tipo == 'way') {
-            final nds = (el['nodes'] as List<dynamic>?)
-                    ?.map((n) => n.toString())
-                    .toList() ??
-                [];
-            if (nds.length >= 2) vias.add(nds);
+          if (res.statusCode != 200 || res.data == null) {
+            continue;
           }
+
+          onProgreso?.call(
+            'Sector ${idx + 1}/4: indexando intersecciones...',
+            (idx + 0.9) / cuadrantes.length,
+          );
+
+          final decoded = jsonDecode(res.data!) as Map<String, dynamic>;
+          final elements = decoded['elements'] as List<dynamic>? ?? [];
+
+          for (final el in elements) {
+            final tipo = el['type'];
+            if (tipo == 'node') {
+              final id = el['id'].toString();
+              final nLat = (el['lat'] as num).toDouble();
+              final nLon = (el['lon'] as num).toDouble();
+              nodosTotales[id] = [nLat, nLon];
+            } else if (tipo == 'way') {
+              final nds = (el['nodes'] as List<dynamic>?)
+                      ?.map((n) => n.toString())
+                      .toList() ??
+                  [];
+              if (nds.length >= 2) viasTotales.add(nds);
+            }
+          }
+
+          sectorOk = true;
+          break;
+        } catch (_) {
+          onProgreso?.call(
+            'Sector ${idx + 1}/4: reintentando en servidor respaldo...',
+            idx / cuadrantes.length,
+          );
         }
+      }
 
-        if (nodos.isEmpty || vias.isEmpty) {
-          onProgreso?.call('Sin calles registradas en esa zona.', null);
-          return false;
-        }
-
-        final archivo = File('$rutaMapas/red_vial.json');
-        await archivo.writeAsString(jsonEncode({
-          'lat': lat,
-          'lon': lon,
-          'radioKm': radioKm,
-          'nodos': nodos,
-          'vias': vias,
-        }));
-
+      if (!sectorOk) {
         onProgreso?.call(
-          '✅ Red vial lista (${nodos.length} intersecciones indexadas)',
-          1.0,
-        );
-        return true;
-      } catch (e) {
-        onProgreso?.call(
-          'Error/Timeout en $host, probando servidor alternativo...',
+          '⚠️ Falló el sector ${idx + 1}/4 en los servidores OSM. Intenta de nuevo.',
           null,
         );
+        return false;
+      }
+
+      // Pequeña pausa de cortesía entre cuadrantes para evitar rate-limit HTTP 429
+      if (idx < cuadrantes.length - 1) {
+        await Future.delayed(const Duration(seconds: 2));
       }
     }
 
+    if (nodosTotales.isEmpty || viasTotales.isEmpty) {
+      onProgreso?.call('Sin calles registradas en esa zona.', null);
+      return false;
+    }
+
+    onProgreso?.call('Guardando malla vial unificada de 45 km...', 0.98);
+    final archivo = File('$rutaMapas/red_vial.json');
+    await archivo.writeAsString(jsonEncode({
+      'lat': lat,
+      'lon': lon,
+      'radioKm': radioKm,
+      'nodos': nodosTotales,
+      'vias': viasTotales,
+    }));
+
     onProgreso?.call(
-      '⚠️ No se pudo completar la descarga en ninguno de los servidores OSM.',
-      null,
+      '✅ Red vial 45 km lista (${nodosTotales.length} intersecciones)',
+      1.0,
     );
-    return false;
+    return true;
   }
 
   static Future<bool> existeRedVial(String rutaMapas) async {
@@ -166,17 +198,18 @@ out skel qt;
     final archivo = File('$rutaMapas/red_vial.json');
     if (await archivo.exists()) {
       try {
-        final raw = jsonDecode(await archivo.readAsString()) as Map<String, dynamic>;
+        final raw =
+            jsonDecode(await archivo.readAsString()) as Map<String, dynamic>;
         final nodosRaw = raw['nodos'] as Map<String, dynamic>;
         final viasRaw = raw['vias'] as List<dynamic>;
 
         final Map<String, LatLng> nodos = {};
         nodosRaw.forEach((k, v) {
           final arr = v as List<dynamic>;
-          nodos[k] = LatLng((arr.first as num).toDouble(), (arr.elementAt(1) as num).toDouble());
+          nodos[k] = LatLng(
+              (arr.first as num).toDouble(), (arr.elementAt(1) as num).toDouble());
         });
 
-        // Construir grafo bidireccional
         final Map<String, List<String>> adj = {};
         for (final v in viasRaw) {
           final lista = (v as List<dynamic>).map((e) => e.toString()).toList();
@@ -190,20 +223,21 @@ out skel qt;
           }
         }
 
-        // Buscar nodo vial más cercano al origen y al destino (máx 1.5 km)
         String? startId;
         String? goalId;
-        double minStart = 1500.0;
-        double minGoal = 1500.0;
+        double minStart = 2000.0;
+        double minGoal = 2000.0;
 
         adj.forEach((id, _) {
           final pt = nodos[id]!;
-          final dS = _distMetros(origen.latitude, origen.longitude, pt.latitude, pt.longitude);
+          final dS = _distMetros(
+              origen.latitude, origen.longitude, pt.latitude, pt.longitude);
           if (dS < minStart) {
             minStart = dS;
             startId = id;
           }
-          final dG = _distMetros(destino.latitude, destino.longitude, pt.latitude, pt.longitude);
+          final dG = _distMetros(
+              destino.latitude, destino.longitude, pt.latitude, pt.longitude);
           if (dG < minGoal) {
             minGoal = dG;
             goalId = id;
@@ -216,18 +250,17 @@ out skel qt;
             return ResultadoRuta(
               puntos: [origen, ...camino, destino],
               esPorCalles: true,
-              origenDato: 'Red Vial Offline (A*)',
+              origenDato: 'Red Vial Offline 45 km (A*)',
             );
           }
         }
       } catch (_) {}
     }
 
-    // Respaldo: Línea directa por rumbo y distancia
     return ResultadoRuta(
       puntos: [origen, destino],
       esPorCalles: false,
-      origenDato: 'Directo por rumbo (sin red vial)',
+      origenDato: 'Directo por rumbo (fuera de red vial)',
     );
   }
 
@@ -240,17 +273,19 @@ out skel qt;
     final goalPt = nodos[goal]!;
     final Map<String, double> gScore = {start: 0.0};
     final Map<String, double> fScore = {
-      start: _distMetros(nodos[start]!.latitude, nodos[start]!.longitude, goalPt.latitude, goalPt.longitude),
+      start: _distMetros(nodos[start]!.latitude, nodos[start]!.longitude,
+          goalPt.latitude, goalPt.longitude),
     };
     final Map<String, String> cameFrom = {};
     final SplayTreeSet<String> openSet = SplayTreeSet<String>((a, b) {
-      final cmp = (fScore[a] ?? double.infinity).compareTo(fScore[b] ?? double.infinity);
+      final cmp =
+          (fScore[a] ?? double.infinity).compareTo(fScore[b] ?? double.infinity);
       return cmp != 0 ? cmp : a.compareTo(b);
     });
     openSet.add(start);
 
     int iteraciones = 0;
-    while (openSet.isNotEmpty && iteraciones < 35000) {
+    while (openSet.isNotEmpty && iteraciones < 150000) {
       iteraciones++;
       final current = openSet.first;
       if (current == goal) {
@@ -268,13 +303,15 @@ out skel qt;
       for (final neighbor in adj[current] ?? const <String>[]) {
         final nPt = nodos[neighbor]!;
         final tentativeG = (gScore[current] ?? double.infinity) +
-            _distMetros(currPt.latitude, currPt.longitude, nPt.latitude, nPt.longitude);
+            _distMetros(currPt.latitude, currPt.longitude, nPt.latitude,
+                nPt.longitude);
         if (tentativeG < (gScore[neighbor] ?? double.infinity)) {
           openSet.remove(neighbor);
           cameFrom[neighbor] = current;
           gScore[neighbor] = tentativeG;
           fScore[neighbor] = tentativeG +
-              _distMetros(nPt.latitude, nPt.longitude, goalPt.latitude, goalPt.longitude);
+              _distMetros(nPt.latitude, nPt.longitude, goalPt.latitude,
+                  goalPt.longitude);
           openSet.add(neighbor);
         }
       }

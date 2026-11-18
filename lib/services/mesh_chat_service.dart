@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/services.dart';
 import 'nodo_config_service.dart';
+import 'sync_cartografia_service.dart';
 
 class MensajeMesh {
   final String id;
@@ -186,6 +187,17 @@ class MeshChatService {
       } catch (_) {}
       return;
     }
+     // 2.5 Inventario cartográfico silencioso (Mapas, Red Vial, Waypoints)
+     if (incoming.texto.startsWith('SYNC_MAP:')) {
+      final cfg = await NodoConfigService.cargar();
+      await SyncCartografiaService.procesarInventarioRecibido(
+        incoming.autor,
+        incoming.texto,
+        cfg,
+      );
+      return;
+    }
+    
 
     // 3. Mensaje abierto comunitario
     _mensajes.insert(0, incoming);

@@ -1,9 +1,32 @@
-# AegisNode // OFFLINE
+<div align="center">
+  <img src="fastlane/metadata/android/es-ES/images/icon.png" alt="AegisNode Icon" width="190" />
+  <h1>AegisNode // OFFLINE</h1>
+  <p><b>Estación táctica offline para Android con red en malla Bluetooth (BLE Multi-Hop Mesh), cartografía MBTiles con enrutamiento A*, enciclopedias ZIM y portal web local sin Internet.</b></p>
 
-**AegisNode** es una aplicación móvil de código abierto para Android diseñada para operar como **estación táctil de conocimiento autónomo, navegación cartográfica y comunicación descentralizada sin conexión a Internet** durante emergencias, apagones prolongados, desastres naturales o expediciones fuera de cobertura.
+  <p>
+    <a href="https://github.com/franciscogimenez365-ai/AegisNode/releases/latest">
+      <img src="https://img.shields.io/badge/Descargar_APK-v1.1.0-00E676?style=for-the-badge&logo=android&logoColor=black" alt="Descargar APK v1.1.0" />
+    </a>
+    <a href="LICENSE">
+      <img src="https://img.shields.io/badge/Licencia-MIT-FF6D00?style=for-the-badge" alt="Licencia MIT" />
+    </a>
+    <a href="https://gitlab.com/fdroid/rfp/-/work_items/4808">
+      <img src="https://img.shields.io/badge/F--Droid-En_Revisión-1976D2?style=for-the-badge&logo=fdroid&logoColor=white" alt="F-Droid RFP" />
+    </a>
+  </p>
+</div>
 
 ---
 
+<details align="center">
+  <summary><b>📱 Ver capturas de pantalla de la interfaz</b></summary>
+  <br />
+  <img src="fastlane/metadata/android/es-ES/images/phoneScreenshots/1.png" width="28%" alt="Malla BLE y Chat" />
+  <img src="fastlane/metadata/android/es-ES/images/phoneScreenshots/2.png" width="28%" alt="Mapas Offline y Rutas" />
+  <img src="fastlane/metadata/android/es-ES/images/phoneScreenshots/3.png" width="28%" alt="Enciclopedias ZIM Offline" />
+</details>
+
+---
 ## Características Principales
 
 ### 1. Red en Malla Bluetooth Low Energy (BLE Multi-Hop Mesh)
@@ -28,6 +51,15 @@
 * Visor integrado y gestor de documentos técnicos, protocolos y guías personales almacenados localmente en `/storage/emulated/0/AegisNode/manuales`.
 
 ---
+
+## Novedades de la Versión 1.1.0
+
+* **Brújula Magnetométrica en Vivo en el Mapa:** La flecha de ubicación gira en tiempo real utilizando los sensores nativos de orientación del dispositivo para mostrar exactamente hacia dónde apuntas en terreno.
+* **Mensajes Importantes (`📌`) y Buzón Muerto (*Dead Drop* `📦`):** Permite fijar alertas críticas que se sincronizan automáticamente al cruzarse con nuevos nodos en rango BLE, además de dejar paquetes dirigidos a un alias específico o grupo privado AES-256 para entrega diferida en terreno.
+* **Intercambio Cartográfico Inteligente con Descarga en 1 Toque:** Al cruzarse con vecinos, los nodos anuncian sus mapas `.mbtiles`, red vial (`45 km`) y waypoints opcionales, permitiendo descargar los archivos faltantes directamente desde una tarjeta interactiva con barra de progreso en el chat vía enlace Wi-Fi local.
+* **Grabador y Gestor de Rastros GPX (*Breadcrumbs*):** Permite grabar recorridos GPS paso a paso sobre el mapa offline, guardarlos en formato estándar `.gpx`, activar o desactivar su visualización individual, renombrarlos y eliminarlos desde un gestor integrado.
+* **Notas de Voz Ultra-Comprimidas (`Audio PTT` de 4s):** Grabación y reproducción nativa de mensajes de voz de baja tasa de bits (`AMR-NB`, ~5 KB por mensaje) para comunicación rápida sin escribir por la malla BLE o Wi-Fi.
+
 ## Novedades de la Versión 1.0.1
 
 * **Estabilidad Multi-Dispositivo (Android 8–15):** Deduplicación real de nodos vecinos por indicativo/alias (evitando conteos duplicados por rotación de direcciones MAC) y control anti-congestión GATT (`30 ms` entre tramas) para eliminar el `error 147` en chips Bluetooth 4.2 antiguos.
@@ -59,7 +91,7 @@
 
 ### Pasos
 ```bash
-git clone https://github.com
+git clone https://github.com/franciscogimenez365-ai/AegisNode
 cd AegisNode
 flutter pub get
 flutter build apk --release --split-per-abi

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -9,6 +10,8 @@ import '../services/ble_mesh_service.dart';
 import '../services/mesh_chat_service.dart';
 import '../services/nodo_config_service.dart';
 import '../services/servidor_local.dart';
+import '../services/dead_drop_service.dart';
+import '../services/sync_cartografia_service.dart';
 
 class NodoScreen extends StatefulWidget {
   final String rutaBase;
@@ -26,8 +29,11 @@ class _NodoScreenState extends State<NodoScreen> {
   bool _bleActivo = false;
   bool _wifiActivo = false;
   bool _sosActivo = false;
+  bool _grabandoPtt = false;
   bool _verCanalPrivado = false;
   Timer? _timerSos;
+  final Map<String, double> _progresoDescargasVecino = {};
+
   static const MethodChannel _sysChannel =
       MethodChannel('com.emergencia.aegis_node/kiwix');
 
@@ -36,6 +42,7 @@ class _NodoScreenState extends State<NodoScreen> {
   void initState() {
     super.initState();
     _cargarConfig();
+    DeadDropService.inicializar();
   }
     @override
   void dispose() {
@@ -118,6 +125,46 @@ class _NodoScreenState extends State<NodoScreen> {
       claveGrupo: _config.claveGrupo,
     );
   }
+    Future<void> _iniciarGrabacionPtt() async {
+    if (_config.alias.trim().isEmpty) {
+      _abrirConfiguracionNodo();
+      return;
+    }
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) return;
+
+    HapticFeedback.mediumImpact();
+    try {
+      final ok = await _sysChannel.invokeMethod<bool>('iniciarPtt') ?? false;
+      if (ok && mounted) {
+        setState(() => _grabandoPtt = true);
+        // Corte automático a los 4 segundos para mantener el paquete ligero (~5 KB)
+        Future.delayed(const Duration(seconds: 4), () {
+          if (_grabandoPtt) _detenerYEnviarPtt();
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _detenerYEnviarPtt() async {
+    if (!_grabandoPtt) return;
+    setState(() => _grabandoPtt = false);
+    HapticFeedback.lightImpact();
+
+    try {
+      final payloadPtt = await _sysChannel.invokeMethod<String>('detenerPtt');
+      if (payloadPtt != null && payloadPtt.startsWith('PTT:v1:')) {
+        await MeshChatService.publicarMensajeLocal(
+          autor: _config.alias,
+          texto: payloadPtt,
+          ttlInicial: _config.ttlMaximo,
+          esPrivado: _verCanalPrivado && _config.claveGrupo.trim().isNotEmpty,
+          claveGrupo: _config.claveGrupo,
+        );
+      }
+    } catch (_) {}
+  }
+
   Future<void> _activarODetenerSos() async {
     if (_sosActivo) {
       _timerSos?.cancel();
@@ -139,6 +186,105 @@ class _NodoScreenState extends State<NodoScreen> {
       if (_sosActivo) _emitirPulsoSos();
     });
   }
+    Future<void> _abrirDialogoDeadDrop() async {
+    final destCtrl = TextEditingController();
+    final msgCtrl = TextEditingController();
+    bool soloGrupoPrivado =
+        _verCanalPrivado && _config.claveGrupo.trim().isNotEmpty;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: const Color(0xFF121212),
+          title: const Text('📦 BUZÓN MUERTO (DEAD DROP)',
+              style: TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Guarda un paquete en este nodo. Cuando el destinatario pase en rango BLE, se entregará automáticamente.',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: destCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Alias Destinatario (vacío = cualquier vecino)',
+                  filled: true,
+                  fillColor: Color(0xFF1A1A1A),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: msgCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Mensaje táctico o instrucciones...',
+                  filled: true,
+                  fillColor: Color(0xFF1A1A1A),
+                ),
+              ),
+              if (_config.claveGrupo.trim().isNotEmpty)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Cifrar con clave de grupo AES-256',
+                      style: TextStyle(fontSize: 12)),
+                  value: soloGrupoPrivado,
+                  activeThumbColor: const Color(0xFF00E676),
+                  onChanged: (v) => setDlg(() => soloGrupoPrivado = v),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E676),
+                  foregroundColor: Colors.black),
+              onPressed: () async {
+                final texto = msgCtrl.text.trim();
+                if (texto.isEmpty) return;
+
+                String payloadFinal = texto;
+                if (soloGrupoPrivado && _config.claveGrupo.trim().isNotEmpty) {
+                  try {
+                    final sobre = jsonEncode({'t': texto});
+                    final cifrado =
+                        await _sysChannel.invokeMethod<String>('cifrarAes', {
+                      'texto': sobre,
+                      'clave': _config.claveGrupo.trim(),
+                    });
+                    if (cifrado != null) payloadFinal = cifrado;
+                  } catch (_) {}
+                }
+
+                final nuevoDrop = PaqueteDeadDrop(
+                  id: 'drop_${DateTime.now().microsecondsSinceEpoch}',
+                  remitente: _config.alias.isEmpty ? 'Nodo' : _config.alias,
+                  destinatarioAlias: destCtrl.text.trim(),
+                  texto: payloadFinal,
+                  esPrivado: soloGrupoPrivado,
+                  creadoEn: DateTime.now(),
+                );
+                await DeadDropService.agregarDeadDrop(nuevoDrop);
+                if (!ctx.mounted) return;
+                Navigator.pop(ctx);
+                MeshChatService.publicarAvisoSistema(
+                  '📦 Dead Drop guardado (${destCtrl.text.trim().isEmpty ? "Cualquier vecino" : "Para: ${destCtrl.text.trim()}"}).',
+                );
+              },
+              child: const Text('GUARDAR EN BUZÓN'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   Future<void> _emitirPulsoSos() async {
     int bateria = -1;
@@ -291,6 +437,24 @@ class _NodoScreenState extends State<NodoScreen> {
                   activeThumbColor: const Color(0xFF00E676),
                   onChanged: (v) =>
                      setModalState(() => _config.notificarMensajes = v),
+                ),
+                                SwitchListTile(
+                  title: const Text('Compartir Mapas y Red Vial en Malla'),
+                  subtitle: const Text(
+                      'Avisa a vecinos qué mapas y calles offline tienes'),
+                  value: _config.syncMapasYRutas,
+                  activeThumbColor: const Color(0xFF00E676),
+                  onChanged: (v) =>
+                      setModalState(() => _config.syncMapasYRutas = v),
+                ),
+                SwitchListTile(
+                  title: const Text('Compartir mis Waypoints Personales'),
+                  subtitle: const Text(
+                      'Desactivado por defecto para proteger tus ubicaciones'),
+                  value: _config.syncWaypointsPersonales,
+                  activeThumbColor: const Color(0xFFFF6D00),
+                  onChanged: (v) => setModalState(
+                      () => _config.syncWaypointsPersonales = v),
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton(
@@ -634,6 +798,145 @@ Widget build(BuildContext context) {
                       itemCount: msgs.length,
                       itemBuilder: (context, i) {
                         final m = msgs.elementAt(i);
+                                                if (m.texto.startsWith('OFERTA_MAPA:')) {
+                          final ofertaId =
+                              m.texto.substring('OFERTA_MAPA:'.length);
+                          final oferta =
+                              SyncCartografiaService.ofertasActivas[ofertaId];
+                          if (oferta == null) return const SizedBox.shrink();
+
+                          return Card(
+                            color: const Color(0xFF1A1A1A),
+                            shape: RoundedRectangleBorder(
+                              side: const BorderSide(
+                                  color: Color(0xFF00E676), width: 1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    '🗺️ MAPAS / RUTAS DISPONIBLES EN ${oferta.autor.toUpperCase()}',
+                                    style: const TextStyle(
+                                      color: Color(0xFF00E676),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Asegúrate de que ${oferta.autor} tenga su Portal Web Wi-Fi activo (IP ${oferta.ip}) y toca para instalar directo:',
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 11),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  ...oferta.archivosFaltantes.map((archivo) {
+                                    final etiqueta =
+                                        oferta.etiquetas[archivo] ?? archivo;
+                                    final claveProg =
+                                        '${oferta.ip}_$archivo';
+                                    final prog =
+                                        _progresoDescargasVecino[claveProg];
+                                    final descargando = prog != null;
+
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          ElevatedButton.icon(
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor:
+                                                  const Color(0xFFFF6D00),
+                                              foregroundColor: Colors.black,
+                                            ),
+                                            icon: Icon(
+                                              descargando
+                                                  ? Icons.downloading
+                                                  : Icons.download,
+                                              size: 18,
+                                            ),
+                                            label: Text(
+                                              descargando
+                                                  ? 'Descargando ${(prog * 100).toStringAsFixed(0)}%...'
+                                                  : 'Descargar $etiqueta',
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12),
+                                            ),
+                                            onPressed: descargando
+                                                ? null
+                                                : () async {
+                                                    setState(() {
+                                                      _progresoDescargasVecino[
+                                                          claveProg] = 0.01;
+                                                    });
+                                                    final ok =
+                                                        await SyncCartografiaService
+                                                            .descargarArchivoDesdeVecino(
+                                                      ip: oferta.ip,
+                                                      nombreArchivo: archivo,
+                                                      onProgreso: (pct) {
+                                                        if (mounted) {
+                                                          setState(() {
+                                                            _progresoDescargasVecino[
+                                                                claveProg] = pct;
+                                                          });
+                                                        }
+                                                      },
+                                                    );
+                                                    if (!mounted) return;
+                                                    setState(() {
+                                                      _progresoDescargasVecino
+                                                          .remove(claveProg);
+                                                    });
+                                                    if (!context.mounted) return;
+                                                    ScaffoldMessenger.of(
+                                                            context)
+                                                        .showSnackBar(
+                                                      SnackBar(
+                                                        backgroundColor: ok
+                                                            ? const Color(
+                                                                0xFF00E676)
+                                                            : Colors.redAccent,
+                                                        content: Text(
+                                                          ok
+                                                              ? '✅ $archivo instalado en tus Mapas Offline.'
+                                                              : '⚠️ No se pudo conectar a ${oferta.ip}:8080.',
+                                                          style: TextStyle(
+                                                              color: ok
+                                                                  ? Colors.black
+                                                                  : Colors
+                                                                      .white,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .bold),
+                                                        ),
+                                                      ),
+                                                    );
+                                                  },
+                                          ),
+                                          if (descargando) ...[
+                                            const SizedBox(height: 4),
+                                            LinearProgressIndicator(
+                                              value: prog,
+                                              color: const Color(0xFF00E676),
+                                              backgroundColor:
+                                                  const Color(0xFF2A2A2A),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
                         return Card(
                           color: const Color(0xFF121212),
                           child: ListTile(
@@ -644,20 +947,47 @@ Widget build(BuildContext context) {
                                         color: Color(0xFF00E676),
                                         fontWeight: FontWeight.bold,
                                         fontSize: 13)),
-                                        const Spacer(),
-                                        Text(
-                                          'Saltos: ${m.saltosRecorridos} | TTL: ${m.ttl}',
-                                          style: const TextStyle(
-                                            color: Colors.grey, fontSize: 10)),
+                                const Spacer(),
+                                Text(
+                                    'Saltos: ${m.saltosRecorridos} | TTL: ${m.ttl}',
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 10)),
                               ],
                             ),
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(m.texto),
+                                if (m.texto.startsWith('PTT:v1:'))
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: ElevatedButton.icon(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            const Color(0xFF00E676),
+                                        foregroundColor: Colors.black,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 4),
+                                      ),
+                                      icon: const Icon(Icons.play_arrow,
+                                          size: 18),
+                                      label: const Text('NOTA DE VOZ PTT (4s)',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 11)),
+                                      onPressed: () {
+                                        _sysChannel
+                                            .invokeMethod('reproducirPtt', {
+                                          'payload': m.texto,
+                                        });
+                                      },
+                                    ),
+                                  )
+                                else
+                                  Text(m.texto),
                                 if (m.gps != null)
                                   InkWell(
                                     onTap: () {
+
                                       final partes = m.gps!.split(',');
                                       if (partes.length == 2) {
                                         final lat = double.tryParse(partes.first.trim());
@@ -682,20 +1012,36 @@ Widget build(BuildContext context) {
 
                               ],
                             ),
+                            trailing: IconButton(
+                              icon: Icon(
+                                DeadDropService.esImportante(m.id)
+                                    ? Icons.push_pin
+                                    : Icons.push_pin_outlined,
+                                color: DeadDropService.esImportante(m.id)
+                                    ? const Color(0xFFFF6D00)
+                                    : Colors.grey,
+                                size: 18,
+                              ),
+                              tooltip: 'Fijar como importante para sincronización',
+                              onPressed: () async {
+                                await DeadDropService.alternarImportante(m);
+                                setState(() {});
+                              },
+                            ),
                           ),
                         );
-                      },
+                      }
                     );
                   },
               ),
         ),
         if (_config.chatActivo)
-        Container(
-          color: const Color(0xFF121212),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            children: [
-              Expanded(
+          Container(
+            color: const Color(0xFF121212),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              children: [
+                Expanded(
                   child: TextField(
                     controller: _msgCtrl,
                     onSubmitted: (_) => _enviarMensaje(),
@@ -704,14 +1050,40 @@ Widget build(BuildContext context) {
                       border: InputBorder.none,
                     ),
                   ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.send, color: Color(0xFFFF6D00)),
-                onPressed: _enviarMensaje,
-              ),
-            ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.inventory_2_outlined,
+                      color: Color(0xFFFF6D00)),
+                  tooltip: 'Dejar Dead Drop (Buzón Muerto)',
+                  onPressed: _abrirDialogoDeadDrop,
+                ),
+                GestureDetector(
+                  onLongPressStart: (_) => _iniciarGrabacionPtt(),
+                  onLongPressEnd: (_) => _detenerYEnviarPtt(),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: _grabandoPtt
+                          ? Colors.redAccent
+                          : const Color(0xFF1E1E1E),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      _grabandoPtt ? Icons.graphic_eq : Icons.mic,
+                      color:
+                          _grabandoPtt ? Colors.white : const Color(0xFF00E676),
+                      size: 22,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.send, color: Color(0xFFFF6D00)),
+                  onPressed: _enviarMensaje,
+                ),
+              ],
+            ),
           ),
-        ),
+
       ],
     );
   }

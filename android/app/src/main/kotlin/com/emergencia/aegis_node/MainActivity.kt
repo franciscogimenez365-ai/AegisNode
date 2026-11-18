@@ -16,6 +16,10 @@ import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.content.Context
 import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.ParcelUuid
@@ -54,7 +58,11 @@ class MainActivity : FlutterActivity() {
     private var pfdActual: ParcelFileDescriptor? = null
     private var zimServerSocket: ServerSocket? = null
     private val zimPort = 8081
-
+    private var sensorManager: SensorManager? = null
+    private var brujulaListener: SensorEventListener? = null
+    private var pttRecorder: android.media.MediaRecorder? = null
+    private var pttFile: File? = null
+    private var pttPlayer: android.media.MediaPlayer? = null
     private var activeAdvertiseCallback: AdvertiseCallback? = null
     private var gattServer: BluetoothGattServer? = null
     private var methodChannelRef: MethodChannel? = null
@@ -139,6 +147,7 @@ class MainActivity : FlutterActivity() {
         out.write(body)
         out.flush()
     }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getBooleanExtra("abrir_nodo", false)) {
@@ -146,8 +155,11 @@ class MainActivity : FlutterActivity() {
             methodChannelRef?.invokeMethod("abrirPestanaNodo", null)
         }
     }
-        override fun onDestroy() {
+
+    override fun onDestroy() {
         try {
+            brujulaListener?.let { sensorManager?.unregisterListener(it) }
+            brujulaListener = null
             val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
             val advertiser = btManager.adapter?.bluetoothLeAdvertiser
             activeAdvertiseCallback?.let {
@@ -161,8 +173,6 @@ class MainActivity : FlutterActivity() {
         } catch (_: Throwable) {}
         super.onDestroy()
     }
-
-
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         iniciarServidorZimLocal()
@@ -288,7 +298,6 @@ class MainActivity : FlutterActivity() {
                                             methodChannelRef?.invokeMethod("onMensajeGattRecibido", acumulado)
                                         }
                                     }
-
                                 }
                             }
                             gattServer = btManager.openGattServer(this, serverCallback)
@@ -453,11 +462,125 @@ class MainActivity : FlutterActivity() {
                         val plano = String(cipher.doFinal(cifrado), Charsets.UTF_8)
                         result.success(plano)
                     } catch (_: Throwable) {
-                        // Si la contraseña no coincide o el paquete es de otro grupo, devuelve null
                         result.success(null)
                     }
                 }
+                             "iniciarPtt" -> {
+                 try {
+                     pttRecorder?.release()
+                     val outFile = File(cacheDir, "ptt_temp.amr")
+                     if (outFile.exists()) outFile.delete()
+                     pttFile = outFile
 
+                     val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                         android.media.MediaRecorder(this)
+                     } else {
+                         @Suppress("DEPRECATION")
+                         android.media.MediaRecorder()
+                     }
+                     recorder.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+                     recorder.setOutputFormat(android.media.MediaRecorder.OutputFormat.AMR_NB)
+                     recorder.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AMR_NB)
+                     recorder.setAudioSamplingRate(8000)
+                     recorder.setAudioEncodingBitRate(4750)
+                     recorder.setMaxDuration(4500) // Máximo 4.5 segundos (~5 KB)
+                     recorder.setOutputFile(outFile.absolutePath)
+                     recorder.prepare()
+                     recorder.start()
+                     pttRecorder = recorder
+                     result.success(true)
+                 } catch (t: Throwable) {
+                     result.error("PTT_REC_ERR", t.message, null)
+                 }
+             }
+             "detenerPtt" -> {
+                 try {
+                     pttRecorder?.stop()
+                 } catch (_: Throwable) {}
+                 try {
+                     pttRecorder?.release()
+                 } catch (_: Throwable) {}
+                 pttRecorder = null
+
+                 val f = pttFile
+                 if (f != null && f.exists() && f.length() > 100) {
+                     val b64 = android.util.Base64.encodeToString(f.readBytes(), android.util.Base64.NO_WRAP)
+                     result.success("PTT:v1:$b64")
+                 } else {
+                     result.success(null)
+                 }
+             }
+             "reproducirPtt" -> {
+                 val payload = call.argument<String>("payload") ?: ""
+                 try {
+                     if (!payload.startsWith("PTT:v1:")) {
+                         result.success(false)
+                         return@setMethodCallHandler
+                     }
+                     val b64 = payload.removePrefix("PTT:v1:")
+                     val bytes = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+                     val playFile = File(cacheDir, "ptt_play.amr")
+                     playFile.writeBytes(bytes)
+
+                     pttPlayer?.release()
+                     val player = android.media.MediaPlayer()
+                     player.setDataSource(playFile.absolutePath)
+                     player.prepare()
+                     player.start()
+                     pttPlayer = player
+                     result.success(true)
+                 } catch (_: Throwable) {
+                     result.success(false)
+                 }
+             }
+
+                else -> result.notImplemented()
+            }
+        }
+
+        val brujulaChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.emergencia.aegis_node/brujula")
+        brujulaChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "iniciarBrujula" -> {
+                    if (sensorManager == null) {
+                        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+                    }
+                    val rotSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+                    if (rotSensor == null) {
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
+                    brujulaListener?.let { sensorManager?.unregisterListener(it) }
+                    val listener = object : SensorEventListener {
+                        private val rotMatrix = FloatArray(9)
+                        private val orientation = FloatArray(3)
+                        private var ultimoEnvio = 0L
+
+                        override fun onSensorChanged(event: SensorEvent) {
+                            val ahora = System.currentTimeMillis()
+                            if (ahora - ultimoEnvio < 100) return
+                            ultimoEnvio = ahora
+
+                            SensorManager.getRotationMatrixFromVector(rotMatrix, event.values)
+                            SensorManager.getOrientation(rotMatrix, orientation)
+                            var azimutGrados = Math.toDegrees(orientation[0].toDouble())
+                            if (azimutGrados < 0) azimutGrados += 360.0
+                            runOnUiThread {
+                                brujulaChannel.invokeMethod("onBrujulaActualizada", azimutGrados)
+                            }
+                        }
+
+                        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+                    }
+                    brujulaListener = listener
+                    sensorManager?.registerListener(listener, rotSensor, SensorManager.SENSOR_DELAY_UI)
+                    result.success(true)
+                }
+                "detenerBrujula" -> {
+                    brujulaListener?.let { sensorManager?.unregisterListener(it) }
+                    brujulaListener = null
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

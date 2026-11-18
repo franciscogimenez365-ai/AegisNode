@@ -50,6 +50,7 @@ class _WikiScreenState extends State<WikiScreen> {
   }
 
   Future<void> _seleccionarZim(File archivo) async {
+    _searchCtrl.clear();
     final url = await KiwixBridge.abrirZim(archivo.path);
     if (!mounted) return;
     setState(() {
@@ -59,9 +60,12 @@ class _WikiScreenState extends State<WikiScreen> {
       _mostrandoBuscador = false;
     });
     if (url != null) {
-      await _webController.loadRequest(Uri.parse(url));
+      final sep = url.contains('?') ? '&' : '?';
+      final urlFresca = '$url${sep}reload=${DateTime.now().millisecondsSinceEpoch}';
+      await _webController.loadRequest(Uri.parse(urlFresca));
     }
   }
+
 
   Future<void> _buscar(String texto) async {
     if (texto.trim().isEmpty) {

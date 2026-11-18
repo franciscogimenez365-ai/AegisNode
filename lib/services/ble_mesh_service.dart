@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'mesh_chat_service.dart';
 import 'nodo_config_service.dart';
+import 'dead_drop_service.dart';
+import 'sync_cartografia_service.dart';
+
 
 class NodoVecinoInfo {
   final String clave;
@@ -75,6 +78,7 @@ class BleMeshService {
     if (_activo) return;
     _activo = true;
     _configActual = config;
+    await DeadDropService.inicializar();
 
     _bleChannel.setMethodCallHandler((call) async {
       if (call.method == 'onMensajeGattRecibido') {
@@ -91,17 +95,16 @@ class BleMeshService {
             final yaVisto = MeshChatService.yaFueVisto(msgId);
             final esPropio = autor.trim().toLowerCase() ==
                 (_configActual?.alias.trim().toLowerCase() ?? '');
-
             final esCifrado = texto.startsWith('ENC:v1:');
+            final esSyncCarto = texto.startsWith('SYNC_MAP:');
             final tieneClave =
-                (_configActual?.claveGrupo.trim().isNotEmpty ?? false);
-
+            (_configActual?.claveGrupo.trim().isNotEmpty ?? false);
             await MeshChatService.recibirPaqueteExterno(mapa);
-
             if (!yaVisto &&
-                !esPropio &&
-                _configActual?.notificarMensajes == true &&
-                (!esCifrado || tieneClave)) {
+            !esPropio &&
+            !esSyncCarto &&
+            _configActual?.notificarMensajes == true &&
+            (!esCifrado || tieneClave)) {
               await _bleChannel.invokeMethod('notificarMensaje', {
                 'autor': autor.isEmpty ? 'Nodo' : autor,
                 'cuerpo': esCifrado ? '🔒 Mensaje privado de grupo' : texto,
@@ -148,6 +151,7 @@ class BleMeshService {
           );
           if (eraNuevo) {
             _vecinosCtrl.add(_vecinos.length);
+            _sincronizarConVecinoNuevo(aliasMostrar);
           }
         }
       }
@@ -170,6 +174,64 @@ class BleMeshService {
       });
     } catch (_) {}
   }
+    static Future<void> _sincronizarConVecinoNuevo(String aliasVecino) async {
+    if (!_activo) return;
+    await DeadDropService.inicializar();
+
+    // 1. Sincronizar mensajes marcados como importantes
+    for (final imp in DeadDropService.importantes) {
+      final paqueteImp = MensajeMesh(
+        id: 'sync_${imp.id}_${aliasVecino.trim()}',
+        autor: imp.autor,
+        texto: '📌 [IMPORTANTE] ${imp.texto}',
+        ttl: 2,
+        saltosRecorridos: 0,
+        timestamp: imp.timestamp,
+        gps: imp.gps,
+        esPrivado: imp.esPrivado,
+      );
+      _encolarYProcesar(paqueteImp);
+    }
+
+    // 2. Entregar Dead Drops dirigidos a este vecino (o sin alias específico)
+    final aliasNorm = aliasVecino.trim().toLowerCase();
+    for (final drop in DeadDropService.buzon) {
+      final destNorm = drop.destinatarioAlias.trim().toLowerCase();
+      if (destNorm.isEmpty || destNorm == aliasNorm) {
+        final paqueteDrop = MensajeMesh(
+          id: drop.id,
+          autor: drop.remitente,
+          texto: destNorm.isEmpty
+              ? '📦 [DEAD DROP GRUPO] ${drop.texto}'
+              : '📦 [DEAD DROP PARA ${drop.destinatarioAlias}] ${drop.texto}',
+          ttl: 2,
+          saltosRecorridos: 0,
+          timestamp: drop.creadoEn,
+          gps: drop.gps,
+          esPrivado: drop.esPrivado,
+        );
+        _encolarYProcesar(paqueteDrop);
+      }
+    }
+
+    // 3. Compartir inventario de Mapas, Red Vial y Waypoints (según privacidad)
+    if (_configActual != null) {
+      final invPayload =
+      await SyncCartografiaService.construirPaqueteInventario(_configActual!);
+    if (invPayload != null) {
+     final paqueteSync = MensajeMesh(
+       id: 'map_${DateTime.now().microsecondsSinceEpoch}_${aliasVecino.trim()}',
+       autor: _configActual!.alias.isEmpty ? 'Nodo' : _configActual!.alias,
+       texto: invPayload,
+       ttl: 1,
+       saltosRecorridos: 0,
+       timestamp: DateTime.now(),
+      );
+     _encolarYProcesar(paqueteSync);
+      }
+    }
+  }
+
 
   static Future<void> _ejecutarCicloEscucha(NodoConfig config) async {
     while (_activo) {
