@@ -61,26 +61,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _inicializarAlmacenamiento() async {
     await [
-      Permission.storage,
-      Permission.manageExternalStorage,
       Permission.location,
     ].request();
 
-    Directory baseDir;
-    try {
-      baseDir = Directory('/storage/emulated/0/AegisNode');
-      if (!await baseDir.exists()) {
-        final legado = Directory('/storage/emulated/0/AegisNode');
-        if (await legado.exists()) {
-          baseDir = legado;
-        } else {
-          await baseDir.create(recursive: true);
-        }
-      }
-    } catch (_) {
+    final extDirs = await getExternalStorageDirectories();
+    final Directory baseDir;
+    if (extDirs != null && extDirs.isNotEmpty) {
+      baseDir = extDirs.first;
+    } else {
       final appDir = await getApplicationDocumentsDirectory();
       baseDir = Directory('${appDir.path}/AegisNode');
-      if (!await baseDir.exists()) await baseDir.create(recursive: true);
+    }
+
+    if (!await baseDir.exists()) {
+      await baseDir.create(recursive: true);
     }
 
     for (final sub in ['manuales', 'mapas', 'wikis']) {
@@ -92,6 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _rutaBase = baseDir.path);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

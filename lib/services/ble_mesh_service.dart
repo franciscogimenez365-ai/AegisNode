@@ -37,6 +37,7 @@ class BleMeshService {
   static NodoConfig? _configActual;
   static StreamSubscription<List<ScanResult>>? _scanSub;
   static final Map<String, NodoVecinoInfo> _vecinos = {};
+  static final Map<String, List<DateTime>> _tasaMensajesPorAutor = {};
   static final StreamController<int> _vecinosCtrl =
       StreamController<int>.broadcast();
 
@@ -83,15 +84,23 @@ class BleMeshService {
     _bleChannel.setMethodCallHandler((call) async {
       if (call.method == 'onMensajeGattRecibido') {
         final rawJson = call.arguments?.toString() ?? '';
-        if (rawJson.isNotEmpty) {
-          try {
-            final mapa = jsonDecode(rawJson) as Map<String, dynamic>;
-            final msgId = mapa['id']?.toString() ?? '';
-            final autor =
+             if (rawJson.isNotEmpty && rawJson.length <= 16384) {
+              try {
+                final mapa = jsonDecode(rawJson) as Map<String, dynamic>;
+                final msgId = mapa['id']?.toString() ?? '';
+                final autor =
                 mapa['autor']?.toString() ?? mapa['a']?.toString() ?? '';
-            final texto =
+                final texto =
                 mapa['texto']?.toString() ?? mapa['t']?.toString() ?? '';
-
+                
+                // Anti-flood: máximo 10 paquetes cada 10 segundos por remitente
+                final claveAutor = autor.trim().isEmpty ? 'anon' : autor.trim().toLowerCase();
+                final ahora = DateTime.now();
+                final ventana = ahora.subtract(const Duration(seconds: 10));
+                final historial = _tasaMensajesPorAutor.putIfAbsent(claveAutor, () => []);
+                historial.removeWhere((t) => t.isBefore(ventana));
+                if (historial.length >= 10) return;
+                historial.add(ahora);
             final yaVisto = MeshChatService.yaFueVisto(msgId);
             final esPropio = autor.trim().toLowerCase() ==
                 (_configActual?.alias.trim().toLowerCase() ?? '');

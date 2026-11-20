@@ -24,12 +24,17 @@ class SyncCartografiaService {
   static final Map<String, OfertaCartografica> ofertasActivas = {};
 
   static Future<String> obtenerRutaMapas() async {
-    final ext = Directory('/storage/emulated/0/AegisNode/mapas');
-    if (await ext.exists()) return ext.path;
-    final dir = await getApplicationDocumentsDirectory();
-    final fallback = Directory('${dir.path}/mapas');
-    if (!await fallback.exists()) await fallback.create(recursive: true);
-    return fallback.path;
+    final extDirs = await getExternalStorageDirectories();
+    final Directory baseDir;
+    if (extDirs != null && extDirs.isNotEmpty) {
+      baseDir = extDirs.first;
+    } else {
+      final appDir = await getApplicationDocumentsDirectory();
+      baseDir = Directory('${appDir.path}/AegisNode');
+    }
+    final mapasDir = Directory('${baseDir.path}/mapas');
+    if (!await mapasDir.exists()) await mapasDir.create(recursive: true);
+    return mapasDir.path;
   }
 
   static Future<String> _obtenerIpLocal() async {

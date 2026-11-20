@@ -142,11 +142,13 @@ class MainActivity : FlutterActivity() {
 
     private fun enviarRespuesta(socket: Socket, status: String, mime: String, body: ByteArray) {
         val out = socket.getOutputStream()
-        val headers = "HTTP/1.1 $status\r\nContent-Type: $mime\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n"
+        val headers = "HTTP/1.1 $status\r\nContent-Type: $mime\r\nContent-Length: ${body.size}\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
         out.write(headers.toByteArray(Charsets.UTF_8))
         out.write(body)
         out.flush()
     }
+
+
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -173,6 +175,14 @@ class MainActivity : FlutterActivity() {
         } catch (_: Throwable) {}
         super.onDestroy()
     }
+     private fun derivarClaveAes(clave: String): javax.crypto.spec.SecretKeySpec {
+     val salt = "AegisNode-GroupSalt-v1".toByteArray(Charsets.UTF_8)
+     val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+     val spec = javax.crypto.spec.PBEKeySpec(clave.toCharArray(), salt, 100000, 256)
+     val secret = factory.generateSecret(spec)
+     return javax.crypto.spec.SecretKeySpec(secret.encoded, "AES")
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         iniciarServidorZimLocal()
@@ -417,9 +427,8 @@ class MainActivity : FlutterActivity() {
                     val texto = call.argument<String>("texto") ?: ""
                     val clave = call.argument<String>("clave") ?: ""
                     try {
-                        val digest = java.security.MessageDigest.getInstance("SHA-256")
-                        val keyBytes = digest.digest(clave.toByteArray(Charsets.UTF_8))
-                        val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
+
+                        val secretKey = derivarClaveAes(clave)
 
                         val iv = ByteArray(12)
                         java.security.SecureRandom().nextBytes(iv)
@@ -453,9 +462,7 @@ class MainActivity : FlutterActivity() {
                         val iv = combinado.copyOfRange(0, 12)
                         val cifrado = combinado.copyOfRange(12, combinado.size)
 
-                        val digest = java.security.MessageDigest.getInstance("SHA-256")
-                        val keyBytes = digest.digest(clave.toByteArray(Charsets.UTF_8))
-                        val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
+                        val secretKey = derivarClaveAes(clave)
 
                         val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
                         cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secretKey, javax.crypto.spec.GCMParameterSpec(128, iv))

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../services/kiwix_bridge.dart';
@@ -25,7 +26,23 @@ class _WikiScreenState extends State<WikiScreen> {
     super.initState();
     _webController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFF000000));
+      ..setBackgroundColor(const Color(0xFF000000))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri == null) return NavigationDecision.navigate;
+            if (uri.scheme == 'http' || uri.scheme == 'https') {
+              if (uri.host == '127.0.0.1' || uri.host == 'localhost') {
+                return NavigationDecision.navigate;
+              }
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+
+        ),
+      );
     _escanearZims();
   }
 
@@ -61,11 +78,11 @@ class _WikiScreenState extends State<WikiScreen> {
     });
     if (url != null) {
       final sep = url.contains('?') ? '&' : '?';
-      final urlFresca = '$url${sep}reload=${DateTime.now().millisecondsSinceEpoch}';
+      final urlFresca =
+          '$url${sep}reload=${DateTime.now().millisecondsSinceEpoch}';
       await _webController.loadRequest(Uri.parse(urlFresca));
     }
   }
-
 
   Future<void> _buscar(String texto) async {
     if (texto.trim().isEmpty) {
@@ -92,6 +109,111 @@ class _WikiScreenState extends State<WikiScreen> {
     setState(() => _mostrandoBuscador = false);
   }
 
+  Future<void> _importarZim() async {
+    final res = await FilePicker.pickFiles();
+    if (res.isEmpty) return;
+
+    final validos = res
+        .where((f) => f.path != null && f.path!.toLowerCase().endsWith('.zim'))
+        .toList();
+
+    if (validos.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No seleccionaste archivos .zim válidos')),
+      );
+      return;
+    }
+
+    int indiceActual = 0;
+    String nombreActual = '';
+    double pctArchivo = 0.0;
+    String detalleMb = '';
+    StateSetter? actualizarDialogo;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          actualizarDialogo = setDlg;
+          return AlertDialog(
+            backgroundColor: const Color(0xFF121212),
+            title: const Text('IMPORTANDO ENCICLOPEDIAS ZIM',
+                style: TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Archivo ${indiceActual + 1} de ${validos.length}:\n$nombreActual\n$detalleMb',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                LinearProgressIndicator(
+                  value: pctArchivo.clamp(0.0, 1.0),
+                  color: const Color(0xFF00E676),
+                  backgroundColor: const Color(0xFF2A2A2A),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    await Future.delayed(const Duration(milliseconds: 80));
+
+    for (int i = 0; i < validos.length; i++) {
+      indiceActual = i;
+      final origen = File(validos[i].path!);
+      nombreActual = origen.uri.pathSegments.last;
+      pctArchivo = 0.0;
+      detalleMb = 'Iniciando...';
+      actualizarDialogo?.call(() {});
+
+      final destino = File('${widget.rutaWikis}/$nombreActual');
+      if (await destino.exists()) {
+        await destino.delete();
+      }
+
+      final totalBytes = await origen.length();
+      int copiadosBytes = 0;
+      final mbTotal = (totalBytes / (1024 * 1024)).toStringAsFixed(1);
+
+      final sink = destino.openWrite();
+      await for (final chunk in origen.openRead()) {
+        sink.add(chunk);
+        copiadosBytes += chunk.length;
+        pctArchivo = totalBytes > 0 ? (copiadosBytes / totalBytes) : 1.0;
+        final mbCop = (copiadosBytes / (1024 * 1024)).toStringAsFixed(1);
+        detalleMb =
+            '$mbCop MB / $mbTotal MB (${(pctArchivo * 100).toStringAsFixed(0)}%)';
+        actualizarDialogo?.call(() {});
+      }
+      await sink.close();
+    }
+
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+      await _escanearZims();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF00E676),
+          content: Text(
+            '✅ ${validos.length} enciclopedia(s) .zim importadas y listas.',
+            style: const TextStyle(
+                color: Colors.black, fontWeight: FontWeight.bold),
+          ),
+        ),
+      );
+    }
+  }
+
+
+
   @override
   Widget build(BuildContext context) {
     if (_archivosZim.isEmpty) {
@@ -105,13 +227,24 @@ class _WikiScreenState extends State<WikiScreen> {
             const Text('Sin archivos .ZIM instalados',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text(
-              'Descarga paquetes en la pestaña Preparar o colócalos en:\n${widget.rutaWikis}',
+            const Text(
+              'Descarga paquetes en la pestaña Preparar o importa un archivo .ZIM desde tu teléfono.',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
+              style: TextStyle(color: Colors.grey),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: Colors.black,
+              ),
+              onPressed: _importarZim,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Importar archivo .ZIM',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
               onPressed: _escanearZims,
               icon: const Icon(Icons.refresh),
               label: const Text('Recargar carpeta'),
@@ -149,6 +282,12 @@ class _WikiScreenState extends State<WikiScreen> {
                     }
                   },
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.upload_file,
+                    size: 20, color: Color(0xFFFF6D00)),
+                tooltip: 'Importar archivo .ZIM',
+                onPressed: _importarZim,
               ),
               IconButton(
                 icon: const Icon(Icons.home, size: 20, color: Color(0xFF00E676)),

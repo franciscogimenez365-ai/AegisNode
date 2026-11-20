@@ -9,6 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart' as sqlite;
+import 'package:file_picker/file_picker.dart';
 import '../services/mesh_chat_service.dart';
 import '../services/nodo_config_service.dart';
 import '../services/waypoints_service.dart';
@@ -133,6 +134,108 @@ class _MapasScreenState extends State<MapasScreen> {
       await _cargarMbtiles(lista.first);
     }
   }
+  Future<void> _importarMbtiles() async {
+    final res = await FilePicker.pickFiles();
+    if (res.isEmpty) return;
+
+    final validos = res.where((f) {
+      final p = f.path?.toLowerCase() ?? '';
+      return p.endsWith('.mbtiles') || p.endsWith('.json') || p.endsWith('.gpx');
+    }).toList();
+
+    if (validos.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Selecciona archivos .mbtiles, red_vial.json, waypoints.json o .gpx')),
+      );
+      return;
+    }
+
+    int indiceActual = 0;
+    String nombreActual = '';
+    double pctArchivo = 0.0;
+    StateSetter? actualizarDialogo;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) {
+          actualizarDialogo = setDlg;
+          return AlertDialog(
+            backgroundColor: const Color(0xFF121212),
+            title: const Text('IMPORTANDO CARTOGRAFÍA',
+                style: TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Archivo ${indiceActual + 1} de ${validos.length}:\n$nombreActual (${(pctArchivo * 100).toStringAsFixed(0)}%)',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+                const SizedBox(height: 12),
+                LinearProgressIndicator(
+                  value: pctArchivo.clamp(0.0, 1.0),
+                  color: const Color(0xFF00E676),
+                  backgroundColor: const Color(0xFF2A2A2A),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    await Future.delayed(const Duration(milliseconds: 80));
+
+    for (int i = 0; i < validos.length; i++) {
+      indiceActual = i;
+      final origen = File(validos[i].path!);
+      nombreActual = origen.uri.pathSegments.last;
+      pctArchivo = 0.0;
+      actualizarDialogo?.call(() {});
+
+      final destino = File('${widget.rutaMapas}/$nombreActual');
+      if (await destino.exists()) {
+        await destino.delete();
+      }
+
+      final totalBytes = await origen.length();
+      int copiadosBytes = 0;
+
+      final sink = destino.openWrite();
+      await for (final chunk in origen.openRead()) {
+        sink.add(chunk);
+        copiadosBytes += chunk.length;
+        pctArchivo = totalBytes > 0 ? (copiadosBytes / totalBytes) : 1.0;
+        actualizarDialogo?.call(() {});
+      }
+      await sink.close();
+    }
+
+    if (mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+      await _escanearMapas();
+      await _cargarWaypoints();
+      await _cargarRastrosGpx();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: const Color(0xFF00E676),
+          content: Text(
+            '✅ ${validos.length} archivo(s) cartográficos importados.',
+            style: const TextStyle(
+                color: Colors.black, fontWeight: FontWeight.bold),
+          ),
+        ),
+      );
+    }
+  }
+
 
   Future<void> _cargarMbtiles(File archivoExterno) async {
     if (_cargandoMapa) return;
@@ -709,66 +812,91 @@ class _MapasScreenState extends State<MapasScreen> {
       children: [
         Container(
           color: const Color(0xFF121212),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          child: Column(
             children: [
-              Icon(
-                Icons.satellite_alt,
-                size: 18,
-                color: _gpsObtenido ? const Color(0xFF00E676) : Colors.orange,
+              Row(
+                children: [
+                  Icon(
+                    Icons.satellite_alt,
+                    size: 16,
+                    color: _gpsObtenido ? const Color(0xFF00E676) : Colors.orange,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _infoGps,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 11, fontFamily: 'monospace'),
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.my_location, size: 19),
+                    tooltip: 'Centrar GPS',
+                    onPressed: () async {
+                      await _obtenerGps();
+                      if (_tileProvider != null && _gpsObtenido) {
+                        _mapController.move(_ubicacionActual, 6.0);
+                      }
+                    },
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _infoGps,
-                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.my_location, size: 20),
-                tooltip: 'Centrar GPS',
-                onPressed: () async {
-                  await _obtenerGps();
-                  if (_tileProvider != null && _gpsObtenido) {
-                    _mapController.move(_ubicacionActual, 6.0);
-                  }
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_location_alt,
-                    color: Color(0xFFFF6D00), size: 20),
-                tooltip: 'Marcar Waypoint aquí',
-                onPressed: () {
-                  final objetivo = _tileProvider != null
-                      ? _mapController.camera.center
-                      : _ubicacionActual;
-                  _crearWaypointEn(objetivo);
-                },
-              ),
-            IconButton(
-              icon: Icon(
-                _grabandoRastro
-                    ? Icons.stop_circle
-                    : Icons.fiber_manual_record,
-                color: _grabandoRastro ? Colors.redAccent : Colors.cyanAccent,
-                size: 20,
-              ),
-              tooltip: _grabandoRastro
-                  ? 'Detener y guardar rastro GPX'
-                  : 'Grabar rastro de ruta (GPX)',
-              onPressed: _toggleGrabarRastro,
-            ),
-            IconButton(
-              icon: const Icon(Icons.timeline,
-                 color: Colors.cyanAccent, size: 20),
-              tooltip: 'Gestionar rastros GPX guardados',
-              onPressed: _abrirGestorRastros,
-            ),
-
-            IconButton(
-                icon: const Icon(Icons.refresh, size: 20),
-                tooltip: 'Recargar mapas',
-                onPressed: _escanearMapas,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.add_location_alt,
+                        color: Color(0xFFFF6D00), size: 20),
+                    tooltip: 'Marcar Waypoint aquí',
+                    onPressed: () {
+                      final objetivo = _tileProvider != null
+                          ? _mapController.camera.center
+                          : _ubicacionActual;
+                      _crearWaypointEn(objetivo);
+                    },
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(
+                      _grabandoRastro
+                          ? Icons.stop_circle
+                          : Icons.fiber_manual_record,
+                      color: _grabandoRastro
+                          ? Colors.redAccent
+                          : Colors.cyanAccent,
+                      size: 20,
+                    ),
+                    tooltip: _grabandoRastro
+                        ? 'Detener y guardar rastro GPX'
+                        : 'Grabar rastro de ruta (GPX)',
+                    onPressed: _toggleGrabarRastro,
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.timeline,
+                        color: Colors.cyanAccent, size: 20),
+                    tooltip: 'Gestionar rastros GPX guardados',
+                    onPressed: _abrirGestorRastros,
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.upload_file,
+                        color: Color(0xFFFF6D00), size: 20),
+                    tooltip: 'Importar mapa .mbtiles',
+                    onPressed: _importarMbtiles,
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.refresh, size: 20),
+                    tooltip: 'Recargar mapas',
+                    onPressed: _escanearMapas,
+                  ),
+                ],
               ),
             ],
           ),
@@ -836,7 +964,7 @@ class _MapasScreenState extends State<MapasScreen> {
             },
           ),
 
-        if (_archivosMbtiles.length > 1)
+        if (_archivosMbtiles.isNotEmpty)
           Container(
             color: const Color(0xFF1A1A1A),
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -879,10 +1007,21 @@ class _MapasScreenState extends State<MapasScreen> {
                                 fontSize: 18, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            'Descarga mapas en la pestaña Preparar o copia archivos .mbtiles en:\n${widget.rutaMapas}',
+                          const Text(
+                            'Descarga mapas en la pestaña Preparar o importa un archivo .mbtiles desde tu teléfono.',
                             textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.grey),
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                          const SizedBox(height: 18),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF00E676),
+                              foregroundColor: Colors.black,
+                            ),
+                            onPressed: _importarMbtiles,
+                            icon: const Icon(Icons.upload_file),
+                            label: const Text('Importar mapa .mbtiles',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         ],
                       ),

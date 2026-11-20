@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
@@ -7,6 +8,8 @@ class ServidorLocalService {
   HttpServer? _server;
   String? _ipLocal;
   String _rutaBase = '';
+  static const HtmlEscape _htmlEscape = HtmlEscape();
+  final Map<String, List<DateTime>> _historialPeticionesIp = {};
 
   bool get estaActivo => _server != null;
   String get urlAcceso =>
@@ -25,13 +28,27 @@ class ServidorLocalService {
   Future<void> detenerServidor() async {
     await _server?.close(force: true);
     _server = null;
+    _historialPeticionesIp.clear();
+  }
+
+  bool _permitirTasaIp(Request request) {
+    final connInfo =
+        request.context['shelf.io.connection_info'] as HttpConnectionInfo?;
+    final ip = connInfo?.remoteAddress.address ?? 'unknown';
+    final ahora = DateTime.now();
+    final ventana = ahora.subtract(const Duration(seconds: 15));
+
+    final lista = _historialPeticionesIp.putIfAbsent(ip, () => []);
+    lista.removeWhere((t) => t.isBefore(ventana));
+    if (lista.length >= 10) return false;
+    lista.add(ahora);
+    return true;
   }
 
   Future<String> _obtenerIpLocal() async {
     try {
       final interfaces =
           await NetworkInterface.list(type: InternetAddressType.IPv4);
-      // Priorizamos interfaces típicas de Hotspot Android (ap0, wlan1, swlan0)
       for (final iface in interfaces) {
         final nombre = iface.name.toLowerCase();
         if (nombre.contains('ap') ||
@@ -53,21 +70,22 @@ class ServidorLocalService {
 
   String _generarListaArchivos(String subcarpeta, String tituloVacio) {
     final dir = Directory('$_rutaBase/$subcarpeta');
-    if (!dir.existsSync()) return '<li>$tituloVacio</li>';
+    if (!dir.existsSync()) return '<li>${_htmlEscape.convert(tituloVacio)}</li>';
 
     final archivos = dir
         .listSync()
         .whereType<File>()
-        .where((f) => !f.path.split('/').last.startsWith('.'))
+        .where((f) => !f.uri.pathSegments.last.startsWith('.'))
         .toList();
 
-    if (archivos.isEmpty) return '<li>$tituloVacio</li>';
+    if (archivos.isEmpty) return '<li>${_htmlEscape.convert(tituloVacio)}</li>';
 
     return archivos.map((f) {
-      final nombre = f.path.split('/').last;
+      final nombre = f.uri.pathSegments.last;
+      final nombreSeguro = _htmlEscape.convert(nombre);
       final mb = (f.lengthSync() / (1024 * 1024)).toStringAsFixed(1);
       final encoded = Uri.encodeComponent(nombre);
-      return '<li><a href="/archivo/$subcarpeta/$encoded">$nombre</a> <span style="color:#888;font-size:12px;">($mb MB)</span></li>';
+      return '<li><a href="/archivo/$subcarpeta/$encoded">$nombreSeguro</a> <span style="color:#888;font-size:12px;">($mb MB)</span></li>';
     }).join('');
   }
 
@@ -83,10 +101,14 @@ class ServidorLocalService {
           _generarListaArchivos('wikis', 'Sin enciclopedias ZIM aún.');
 
       final htmlMensajes = MeshChatService.mensajes
-          .where((m) => !m.esPrivado) // Solo mostramos el canal abierto público
-          .map((m) =>
-              '<div class="msg"><b>[${m.autor}]</b> ${m.texto} ${m.gps != null ? "<br><small>📍 ${m.gps}</small>" : ""}</div>')
-          .join('');
+          .where((m) => !m.esPrivado)
+          .map((m) {
+        final autorSeguro = _htmlEscape.convert(m.autor);
+        final textoSeguro = _htmlEscape.convert(m.texto);
+        final gpsSeguro =
+            m.gps != null ? _htmlEscape.convert(m.gps!) : null;
+        return '<div class="msg"><b>[$autorSeguro]</b> $textoSeguro ${gpsSeguro != null ? "<br><small>📍 $gpsSeguro</small>" : ""}</div>';
+      }).join('');
 
       final html = '''
 <!DOCTYPE html>
@@ -94,6 +116,7 @@ class ServidorLocalService {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'none';">
 <title>AegisNode // Portal Local</title>
 <style>
   body { background:#000; color:#e0e0e0; font-family:sans-serif; margin:0; padding:16px; }
@@ -112,8 +135,8 @@ class ServidorLocalService {
   <div class="card">
     <h2>Bitácora Comunitaria (Canal Abierto)</h2>
     <form method="POST" action="/enviar">
-      <input type="text" name="autor" placeholder="Tu Nombre / Indicativo" required>
-      <input type="text" name="texto" placeholder="Escribe mensaje o reporte..." required>
+      <input type="text" name="autor" maxlength="24" placeholder="Tu Nombre / Indicativo" required>
+      <input type="text" name="texto" maxlength="400" placeholder="Escribe mensaje o reporte..." required>
       <button type="submit">TRANSMITIR A LA MALLA</button>
     </form>
     <div style="margin-top:12px; max-height:260px; overflow-y:auto;">$htmlMensajes</div>
@@ -133,18 +156,37 @@ class ServidorLocalService {
 </body>
 </html>
 ''';
-      return Response.ok(html,
-          headers: {'Content-Type': 'text/html; charset=utf-8'});
+      return Response.ok(html, headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+      });
     }
 
     if (path == 'enviar' && request.method == 'POST') {
+      if (!_permitirTasaIp(request)) {
+        return Response(429, body: 'Demasiadas peticiones. Espera unos segundos.');
+      }
+
+      final contentLength = request.contentLength ?? 0;
+      if (contentLength > 4096) {
+        return Response(413, body: 'Mensaje demasiado extenso');
+      }
+
       final body = await request.readAsString();
+      if (body.length > 4096) {
+        return Response(413, body: 'Mensaje demasiado extenso');
+      }
+
       final params = Uri.splitQueryString(body);
-      final autor = params['autor']?.trim() ?? 'Web-Local';
-      final texto = params['texto']?.trim() ?? '';
+      var autor = (params['autor'] ?? 'Web-Local').trim();
+      var texto = (params['texto'] ?? '').trim();
+      if (autor.length > 24) autor = autor.substring(0, 24);
+      if (texto.length > 400) texto = texto.substring(0, 400);
+
       if (texto.isNotEmpty) {
         await MeshChatService.publicarMensajeLocal(
-          autor: '$autor (WiFi)',
+          autor: '${autor.isEmpty ? "Web-Local" : autor} (WiFi)',
           texto: texto,
           ttlInicial: 7,
         );
@@ -154,22 +196,52 @@ class ServidorLocalService {
 
     if (path.startsWith('archivo/')) {
       final partes = path.split('/');
-      if (partes.length >= 3) {
+      if (partes.length == 3) {
         final carpeta = partes[1];
-        if (carpeta == 'manuales' || carpeta == 'mapas' || carpeta == 'wikis') {
-          final nombre = Uri.decodeComponent(partes.sublist(2).join('/'));
-          final file = File('$_rutaBase/$carpeta/$nombre');
-          if (await file.exists()) {
-            final tamano = await file.length();
-            return Response.ok(
-              file.openRead(),
-              headers: {
-                'Content-Type': 'application/octet-stream',
-                'Content-Length': '$tamano',
-                'Content-Disposition': 'attachment; filename="$nombre"',
-              },
-            );
+        const permitidas = {'manuales', 'mapas', 'wikis'};
+        if (!permitidas.contains(carpeta)) {
+          return Response.forbidden('Carpeta no autorizada');
+        }
+
+        final nombreDecodificado = Uri.decodeComponent(partes[2]);
+        if (nombreDecodificado.isEmpty ||
+            nombreDecodificado.startsWith('.') ||
+            nombreDecodificado.contains('..') ||
+            nombreDecodificado.contains('/') ||
+            nombreDecodificado.contains('\\') ||
+            nombreDecodificado.contains('\x00')) {
+          return Response.forbidden('Nombre de archivo inválido');
+        }
+
+        final dirBase = Directory('$_rutaBase/$carpeta');
+        if (!await dirBase.exists()) {
+          return Response.notFound('Directorio inexistente');
+        }
+
+        final file = File('${dirBase.path}/$nombreDecodificado');
+        if (await file.exists()) {
+          final rutaCanonicaDir = await dirBase.resolveSymbolicLinks();
+          final rutaCanonicaArchivo = await file.resolveSymbolicLinks();
+
+          if (!rutaCanonicaArchivo
+              .startsWith('$rutaCanonicaDir${Platform.pathSeparator}')) {
+            return Response.forbidden('Acceso denegado fuera de directorio');
           }
+
+          final tamano = await file.length();
+          final nombreHeaderSeguro =
+              nombreDecodificado.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+
+          return Response.ok(
+            file.openRead(),
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'Content-Length': '$tamano',
+              'X-Content-Type-Options': 'nosniff',
+              'Content-Disposition':
+                  'attachment; filename="$nombreHeaderSeguro"',
+            },
+          );
         }
       }
     }

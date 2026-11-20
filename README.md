@@ -1,11 +1,12 @@
 <div align="center">
   <img src="fastlane/metadata/android/es-ES/images/icon.png" alt="AegisNode Icon" width="190" />
   <h1>AegisNode // OFFLINE</h1>
-  <p><b>Estación táctica offline para Android con red en malla Bluetooth (BLE Multi-Hop Mesh), cartografía MBTiles con enrutamiento A*, enciclopedias ZIM y portal web local sin Internet.</b></p>
+  <p><b>Tu estación de comunicación, mapas y conocimiento para cuando no hay Internet ni señal celular.</b></p>
+  <p><i>Envía mensajes y notas de voz sin cobertura, consulta mapas GPS y lleva manuales de supervivencia en tu bolsillo. 100% gratis, sin anuncios y de código abierto.</i></p>
 
   <p>
     <a href="https://github.com/franciscogimenez365-ai/AegisNode/releases/latest">
-      <img src="https://img.shields.io/badge/Descargar_APK-v1.1.0-00E676?style=for-the-badge&logo=android&logoColor=black" alt="Descargar APK v1.1.0" />
+      <img src="https://img.shields.io/badge/Descargar_APK-v1.1.1-00E676?style=for-the-badge&logo=android&logoColor=black" alt="Descargar APK v1.1.1" />
     </a>
     <a href="LICENSE">
       <img src="https://img.shields.io/badge/Licencia-MIT-FF6D00?style=for-the-badge" alt="Licencia MIT" />
@@ -25,6 +26,16 @@
   <img src="fastlane/metadata/android/es-ES/images/phoneScreenshots/2.png" width="28%" alt="Mapas Offline y Rutas" />
   <img src="fastlane/metadata/android/es-ES/images/phoneScreenshots/3.png" width="28%" alt="Enciclopedias ZIM Offline" />
 </details>
+
+---
+## ¿Para qué sirve AegisNode?
+
+**AegisNode** convierte tu teléfono en una herramienta autosuficiente para zonas sin Internet ni red telefónica:
+
+* **Comunicación sin señal:** Intercambia mensajes de texto, notas de voz y alertas SOS directamente entre teléfonos cercanos mediante Bluetooth y redes en cadena (*mesh*).
+* **Mapas y rutas sin datos:** Utiliza el GPS de tu dispositivo con mapas descargados previamente y registra tus recorridos sin conexión.
+* **Biblioteca de emergencia:** Consulta enciclopedias médicas, guías de primeros auxilios y documentos PDF almacenados localmente.
+* **Portal web local:** Comparte archivos y chatea con otras personas cercanas (incluso desde un ordenador o iPhone) a través de un punto de acceso Wi-Fi local.
 
 ---
 ## Características Principales
@@ -48,9 +59,13 @@
 * **Catálogo integrado:** Conexión directa con el catálogo abierto OPDS de Kiwix para descargar paquetes esenciales o buscar enciclopedias por temática.
 
 ### 5. Biblioteca Local de Manuales (`PDF`)
-* Visor integrado y gestor de documentos técnicos, protocolos y guías personales almacenados localmente en `/storage/emulated/0/AegisNode/manuales`.
+* Visor integrado y gestor de documentos técnicos, protocolos y guías personales importados directamente desde el dispositivo
 
 ---
+## Novedades de la Versión 1.1.1
+
+* **Mejoras de seguridad y privacidad:** Actualización de permisos de almacenamiento aislados, cifrado de grupos reforzado con `PBKDF2` y protecciones adicionales en el portal Wi-Fi.
+* Importación directa de archivos con barra de progreso: Permite importar múltiples manuales .pdf, mapas .mbtiles, rutas y enciclopedias .zim directamente desde el selector de Android hacia el almacenamiento privado de la app sin requerir permisos invasivos.
 
 ## Novedades de la Versión 1.1.0
 
@@ -74,7 +89,7 @@
 
 1. **Preparación previa (con conexión a Internet):**
    * Abre la pestaña **Preparar** y descarga los paquetes **Wiki ZIM** esenciales (como *WikiMed* o *Wikipedia Esencial*) y los **Mapas Offline** de tu región o ciudad.
-   * Opcionalmente, copia tus propios archivos `.pdf`, `.mbtiles` o `.zim` en las carpetas `/AegisNode/manuales`, `/AegisNode/mapas` y `/AegisNode/wikis` del almacenamiento interno.
+   * Opcionalmente, importa tus propios archivos .pdf, .mbtiles, .json, .gpx o .zim usando el botón de carga (📤) dentro de cada pestaña.
 2. **Operación en emergencia (100% Offline):**
    * **Chat y Malla:** Ve a la pestaña **Nodo**, toca el ícono de configuración (`⚙️`) para definir tu **Indicativo / Alias**, tu perfil de batería y tus opciones de privacidad, y activa el interruptor **Malla BLE**.
    * **Compartir con dispositivos sin la app:** Enciende el Zona Wi-Fi / Hotspot de tu teléfono, activa **Portal Web Wi-Fi** en la pestaña **Nodo** y muestra el código QR para que otros usuarios accedan desde su navegador.
