@@ -15,6 +15,14 @@
       <img src="https://img.shields.io/badge/F--Droid-En_Revisión-1976D2?style=for-the-badge&logo=fdroid&logoColor=white" alt="F-Droid RFP" />
     </a>
   </p>
+    <p>
+    <a href="https://ko-fi.com/fenork" target="_blank">
+      <img src="https://img.shields.io/badge/Ko--fi-Support%20in%20USD-FF5E5B?style=for-the-badge&logo=buy-me-a-coffee&logoColor=white" alt="Support on Ko-fi" />
+    </a>
+    <a href="https://cafecito.app/fenork" target="_blank">
+      <img src="https://img.shields.io/badge/Cafecito-Invitame%20un%20café-00A8E8?style=for-the-badge&logo=buy-me-a-coffee&logoColor=white" alt="Invitame un café en Cafecito" />
+    </a>
+  </p>
 </div>
 
 ---
@@ -149,3 +157,19 @@ El instalador optimizado para dispositivos Android modernos de 64 bits se genera
 
 * **Concepción, diseño funcional, pruebas en campo y autoría:** [fenork]
 * **Asistencia en arquitectura de software e implementación de código:** Desarrollado en colaboración con **Google Gemini** (asistente de IA).
+---
+
+## ☕ Apoyá el proyecto
+
+**AegisNode** es 100% gratuito, sin anuncios y de código abierto, pensado para garantizar comunicación y acceso al conocimiento incluso sin Internet ni señal celular. Desarrollo estas herramientas por pura vocación, pero cada aporte me ayuda a liberar más horas para sumar funciones, mejorar la red en malla y mantener el proyecto activo para todos.
+
+Si esta herramienta te resultó útil o creés que vale la pena que exista, podés invitarme un café:
+
+<p>
+    <a href="https://ko-fi.com/fenork" target="_blank">
+      <img src="https://img.shields.io/badge/Ko--fi-Support%20in%20USD-FF5E5B?style=for-the-badge&logo=buy-me-a-coffee&logoColor=white" alt="Support on Ko-fi" />
+    </a>
+    <a href="https://cafecito.app/fenork" target="_blank">
+      <img src="https://img.shields.io/badge/Cafecito-Invitame%20un%20café-00A8E8?style=for-the-badge&logo=buy-me-a-coffee&logoColor=white" alt="Invitame un café en Cafecito" />
+    </a>
+</p>
