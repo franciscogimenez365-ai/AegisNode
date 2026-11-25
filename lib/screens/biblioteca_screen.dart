@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'visor_pdf_screen.dart';
+import '../services/idioma_service.dart';
 
 class BibliotecaScreen extends StatefulWidget {
   final String rutaManuales;
@@ -136,7 +137,7 @@ Widget build(BuildContext context) {
           controller: _buscadorCtrl,
           onChanged: _filtrar,
           decoration: InputDecoration(
-            hintText: 'Buscar manual PDF...',
+            hintText: IdiomaService.t('buscar_pdf'),
             prefixIcon: const Icon(Icons.search),
             suffixIcon: Row(
               mainAxisSize: MainAxisSize.min,
@@ -170,10 +171,10 @@ Widget build(BuildContext context) {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text(
-                        'Sin manuales PDF instalados.\nImporta un archivo desde tu teléfono para leerlo sin conexión.',
+                      Text(
+                        IdiomaService.t('sin_pdf'),
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
+                        style: const TextStyle(color: Colors.grey),
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton.icon(
@@ -183,8 +184,8 @@ Widget build(BuildContext context) {
                         ),
                         onPressed: _importarPdf,
                         icon: const Icon(Icons.upload_file),
-                        label: const Text('Importar archivo .PDF',
-                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        label: Text(IdiomaService.t('importar_pdf'),
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ],
                   ),

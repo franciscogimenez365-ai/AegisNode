@@ -6,7 +6,7 @@
 
   <p>
     <a href="https://github.com/franciscogimenez365-ai/AegisNode/releases/latest">
-      <img src="https://img.shields.io/badge/Descargar_APK-v1.1.1-00E676?style=for-the-badge&logo=android&logoColor=black" alt="Descargar APK v1.1.1" />
+      <img src="https://img.shields.io/badge/Descargar_APK-v1.2.0-00E676?style=for-the-badge&logo=android&logoColor=black" alt="Descargar APK v1.2.0" />
     </a>
     <a href="LICENSE">
       <img src="https://img.shields.io/badge/Licencia-MIT-FF6D00?style=for-the-badge" alt="Licencia MIT" />
@@ -70,6 +70,12 @@
 * Visor integrado y gestor de documentos técnicos, protocolos y guías personales importados directamente desde el dispositivo
 
 ---
+## Novedades de la Versión 1.2.0
+
+* **Localización completa en inglés y español:** Detección automática del idioma del sistema y selector persistente dentro de la configuración del nodo.
+* **Cambio automático de escala en mapas (`Auto-Scale MBTiles`):** Alterna automáticamente entre mapas de distinta cobertura al hacer zoom o desplazar la cámara, con límite dinámico de zoom máximo para evitar pantallas negras.
+* **Metadatos internacionales en Fastlane (`en-US`):** Ficha completa en inglés lista para F-Droid.
+
 ## Novedades de la Versión 1.1.1
 
 * **Mejoras de seguridad y privacidad:** Actualización de permisos de almacenamiento aislados, cifrado de grupos reforzado con `PBKDF2` y protecciones adicionales en el portal Wi-Fi.

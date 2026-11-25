@@ -1,0 +1,3 @@
+• Localización completa en inglés y español, con detección automática del sistema y selector de idioma persistente dentro de la aplicación.
+• Cambio automático entre mapas MBTiles de distintas escalas al hacer zoom o desplazar el mapa, con limitación dinámica del zoom máximo para evitar la aparición de mosaicos vacíos.
+• Inclusión de metadatos en inglés (en-US) a través de Fastlane para F-Droid.

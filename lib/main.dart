@@ -9,11 +9,15 @@ import 'screens/mapas_screen.dart';
 import 'screens/nodo_screen.dart';
 import 'screens/wiki_screen.dart';
 import 'services/ble_mesh_service.dart';
+import 'services/idioma_service.dart';
 
-void main() {
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await IdiomaService.cargarPreferencia();
   runApp(const AegisNodeApp());
 }
+
 
 class AegisNodeApp extends StatelessWidget {
   const AegisNodeApp({super.key});
@@ -107,6 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _indiceActual = 2;
           });
         },
+        onCambioIdioma: () => setState(() {}),
       ),
       BibliotecaScreen(rutaManuales: '$_rutaBase/manuales'),
       MapasScreen(
@@ -145,12 +150,20 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: const Color(0xFF121212),
         selectedItemColor: const Color(0xFFFF6D00),
         unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.hub), label: 'Nodo'),
-          BottomNavigationBarItem(icon: Icon(Icons.menu_book), label: 'Manuales'),
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Mapas'),
-          BottomNavigationBarItem(icon: Icon(Icons.public), label: 'Wiki ZIM'),
-          BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Preparar'),
+        items: [
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.hub), label: IdiomaService.t('tab_nodo')),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.menu_book),
+            label: IdiomaService.t('tab_manuales')),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.map), label: IdiomaService.t('tab_mapas')),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.public),
+            label: IdiomaService.t('tab_wiki')),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.download),
+            label: IdiomaService.t('tab_preparar')),
         ],
       ),
     );

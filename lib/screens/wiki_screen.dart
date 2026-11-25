@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../services/kiwix_bridge.dart';
+import '../services/idioma_service.dart';
 
 class WikiScreen extends StatefulWidget {
   final String rutaWikis;
@@ -224,13 +225,13 @@ class _WikiScreenState extends State<WikiScreen> {
           children: [
             const Icon(Icons.public_off, size: 64, color: Color(0xFFFF6D00)),
             const SizedBox(height: 16),
-            const Text('Sin archivos .ZIM instalados',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(IdiomaService.t('sin_zim'),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            const Text(
-              'Descarga paquetes en la pestaña Preparar o importa un archivo .ZIM desde tu teléfono.',
+            Text(
+              IdiomaService.t('sin_zim_desc'),
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
+              style: const TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
@@ -240,14 +241,14 @@ class _WikiScreenState extends State<WikiScreen> {
               ),
               onPressed: _importarZim,
               icon: const Icon(Icons.upload_file),
-              label: const Text('Importar archivo .ZIM',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+              label: Text(IdiomaService.t('importar_zim'),
+              style: const TextStyle(fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 10),
             OutlinedButton.icon(
               onPressed: _escanearZims,
               icon: const Icon(Icons.refresh),
-              label: const Text('Recargar carpeta'),
+              label: Text(IdiomaService.t('recargar_carpeta')),
             )
           ],
         ),
@@ -313,7 +314,7 @@ class _WikiScreenState extends State<WikiScreen> {
             onChanged: _buscar,
             decoration: InputDecoration(
               hintText:
-                  'Buscar tema en ${_zimActivo?.uri.pathSegments.last ?? "Wiki"}...',
+              '${IdiomaService.t('buscar_tema')} ${_zimActivo?.uri.pathSegments.last ?? "Wiki"}...',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _searchCtrl.text.isNotEmpty
                   ? IconButton(

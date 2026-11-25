@@ -1,0 +1,3 @@
+• Full English & Spanish localization with automatic system detection and persistent in-app language switcher.
+• Automatic multi-scale MBTiles map switching on zoom/pan with dynamic max-zoom clamping to prevent blank tiles.
+• Added Fastlane English metadata (en-US) for F-Droid.

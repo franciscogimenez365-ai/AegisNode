@@ -1,0 +1,8 @@
+AegisNode is a free, open-source offline communication, navigation, and knowledge station for Android designed for emergencies, blackouts, natural disasters, and off-grid expeditions.
+
+Key Features:
+• Bluetooth Low Energy (BLE) Multi-Hop Mesh Chat: Send text messages, clickable GPS coordinates, 4-second ultra-compressed voice notes (PTT), and SOS telemetry beacons across nearby devices without cell service or Internet.
+• Optional AES-256-GCM Encrypted Private Groups & Dead Drops: Store-and-forward important alerts and targeted packages for offline peers.
+• Offline MBTiles Maps & Street Routing: Navigate with live magnetometer compass rotation, record and manage GPX tracks, mark tactical waypoints, and compute turn-by-turn offline routes (45 km radius).
+• Offline Encyclopedias (ZIM / libzim): Browse full offline wikis (WikiMed, Wikipedia, iFixit) with instant search and dark theme.
+• Local Wi-Fi Web Portal: Share files and chat with any nearby browser over a local hotspot without requiring the app on other devices.

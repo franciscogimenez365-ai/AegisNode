@@ -1,0 +1,5 @@
+• Real-time dynamic location arrow with a magnetometric compass.
+• Important messages (📌) with automatic synchronization between nodes and a "Dead Drop" feature.
+• Intelligent map and road network (45 km) sharing, with one-tap direct download from the chat.
+• GPX track recorder and manager (enable/disable, rename, and delete).
+• Ultra-compressed voice messages (4-second PTT audio) transmitted via BLE and Wi-Fi mesh networks.

@@ -14,6 +14,7 @@ import '../services/mesh_chat_service.dart';
 import '../services/nodo_config_service.dart';
 import '../services/waypoints_service.dart';
 import '../services/enrutador_offline_service.dart';
+import '../services/idioma_service.dart';
 
 
 class RastroGpxInfo {
@@ -29,7 +30,32 @@ class RastroGpxInfo {
     this.visible = false,
   });
 }
+class MetaMapaMbtiles {
+  final File archivo;
+  final int minZoom;
+  final int maxZoom;
+  final double minLon;
+  final double minLat;
+  final double maxLon;
+  final double maxLat;
 
+  MetaMapaMbtiles({
+    required this.archivo,
+    required this.minZoom,
+    required this.maxZoom,
+    required this.minLon,
+    required this.minLat,
+    required this.maxLon,
+    required this.maxLat,
+  });
+
+  bool contiene(LatLng p) {
+    return p.longitude >= minLon &&
+        p.longitude <= maxLon &&
+        p.latitude >= minLat &&
+        p.latitude <= maxLat;
+  }
+}
 
 class MapasScreen extends StatefulWidget {
   final String rutaMapas;
@@ -44,9 +70,13 @@ class _MapasScreenState extends State<MapasScreen> {
   final MapController _mapController = MapController();
   MbTilesTileProvider? _tileProvider;
   List<File> _archivosMbtiles = [];
+  List<MetaMapaMbtiles> _metasMapas = [];
+  double _maxZoomPermitido = 16.0;
+  int _maxNativeZoomActivo = 15;
+  final bool _autoCambioHabilitado = true;
   String? _rutaMapaActivo;
   LatLng _ubicacionActual = const LatLng(0.0, 0.0);
-  String _infoGps = 'GPS en espera';
+  String _infoGps = IdiomaService.t('gps_espera');
   bool _gpsObtenido = false;
   bool _cargandoMapa = false;
   List<WaypointTactico> _waypoints = [];
@@ -114,10 +144,23 @@ class _MapasScreenState extends State<MapasScreen> {
     if (lista.isEmpty) {
       setState(() {
         _archivosMbtiles = [];
+        _metasMapas = [];
         _rutaMapaActivo = null;
         _tileProvider = null;
       });
       return;
+    }
+
+    final dirInterno = await getApplicationSupportDirectory();
+    final nuevasMetas = <MetaMapaMbtiles>[];
+    for (final f in lista) {
+      final nombre = f.uri.pathSegments.last;
+      final interno = File('${dirInterno.path}/$nombre');
+      if (!await interno.exists() ||
+          await interno.length() != await f.length()) {
+        await f.copy(interno.path);
+      }
+      nuevasMetas.add(_leerMetadatosMbtiles(interno, f));
     }
 
     final rutaValida = _rutaMapaActivo != null &&
@@ -125,6 +168,7 @@ class _MapasScreenState extends State<MapasScreen> {
 
     setState(() {
       _archivosMbtiles = lista;
+      _metasMapas = nuevasMetas;
       if (!rutaValida) {
         _rutaMapaActivo = lista.first.path;
       }
@@ -134,6 +178,94 @@ class _MapasScreenState extends State<MapasScreen> {
       await _cargarMbtiles(lista.first);
     }
   }
+
+    MetaMapaMbtiles _leerMetadatosMbtiles(
+      File archivoInterno, File archivoOriginal) {
+    int minZ = 0;
+    int maxZ = 15;
+    double minLon = -180.0, minLat = -85.0, maxLon = 180.0, maxLat = 85.0;
+
+    final db = sqlite.sqlite3.open(archivoInterno.path);
+    try {
+      final rMin =
+          db.select("SELECT value FROM metadata WHERE name = 'minzoom';");
+      if (rMin.isNotEmpty) {
+        minZ = int.tryParse(rMin.first['value'].toString()) ?? 0;
+      }
+      final rMax =
+          db.select("SELECT value FROM metadata WHERE name = 'maxzoom';");
+      if (rMax.isNotEmpty) {
+        maxZ = int.tryParse(rMax.first['value'].toString()) ?? 15;
+      }
+      final rBounds =
+          db.select("SELECT value FROM metadata WHERE name = 'bounds';");
+      if (rBounds.isNotEmpty) {
+        final b = rBounds.first['value'].toString().split(',');
+        if (b.length == 4) {
+          minLon = double.tryParse(b.first.trim()) ?? -180.0;
+          minLat = double.tryParse(b.elementAt(1).trim()) ?? -85.0;
+          maxLon = double.tryParse(b.elementAt(2).trim()) ?? 180.0;
+          maxLat = double.tryParse(b.elementAt(3).trim()) ?? 85.0;
+        }
+      }
+    } finally {
+      db.close();
+    }
+
+    return MetaMapaMbtiles(
+      archivo: archivoOriginal,
+      minZoom: minZ,
+      maxZoom: maxZ,
+      minLon: minLon,
+      minLat: minLat,
+      maxLon: maxLon,
+      maxLat: maxLat,
+    );
+  }
+
+  void _evaluarCambioAutomaticoMapa(LatLng centro, double zoom) {
+    if (!_autoCambioHabilitado || _metasMapas.isEmpty || _cargandoMapa) return;
+
+    final candidatosZona =
+        _metasMapas.where((m) => m.contiene(centro)).toList();
+    final listaEval = candidatosZona.isNotEmpty ? candidatosZona : _metasMapas;
+
+    int maxZDisponible = 5;
+    for (final m in listaEval) {
+      if (m.maxZoom > maxZDisponible) maxZDisponible = m.maxZoom;
+    }
+    if ((_maxZoomPermitido - maxZDisponible.toDouble()).abs() > 0.1) {
+      setState(() => _maxZoomPermitido = maxZDisponible.toDouble());
+    }
+
+    final zRedondeado = zoom.round();
+    final actualMeta = _metasMapas
+        .where((m) => m.archivo.path == _rutaMapaActivo)
+        .firstOrNull;
+
+    final actualSirve = actualMeta != null &&
+        actualMeta.contiene(centro) &&
+        zRedondeado >= actualMeta.minZoom &&
+        zRedondeado <= actualMeta.maxZoom;
+
+    if (actualSirve) return;
+
+    final mejores = listaEval
+        .where((m) => zRedondeado >= m.minZoom && zRedondeado <= m.maxZoom)
+        .toList()
+      ..sort(
+          (a, b) => (b.maxZoom - b.minZoom).compareTo(a.maxZoom - a.minZoom));
+
+    if (mejores.isNotEmpty && mejores.first.archivo.path != _rutaMapaActivo) {
+      _cargarMbtiles(
+        mejores.first.archivo,
+        mantenerCamara: true,
+        centroPrevio: centro,
+        zoomPrevio: zoom,
+      );
+    }
+  }
+
   Future<void> _importarMbtiles() async {
     final res = await FilePicker.pickFiles();
     if (res.isEmpty) return;
@@ -146,9 +278,9 @@ class _MapasScreenState extends State<MapasScreen> {
     if (validos.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+       SnackBar(
             content: Text(
-                'Selecciona archivos .mbtiles, red_vial.json, waypoints.json o .gpx')),
+                IdiomaService.t('imp_map_err'))),
       );
       return;
     }
@@ -167,7 +299,7 @@ class _MapasScreenState extends State<MapasScreen> {
           actualizarDialogo = setDlg;
           return AlertDialog(
             backgroundColor: const Color(0xFF121212),
-            title: const Text('IMPORTANDO CARTOGRAFÍA',
+            title: Text(IdiomaService.t('imp_map_titulo'),
                 style: TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -227,7 +359,7 @@ class _MapasScreenState extends State<MapasScreen> {
         SnackBar(
           backgroundColor: const Color(0xFF00E676),
           content: Text(
-            '✅ ${validos.length} archivo(s) cartográficos importados.',
+            '✅ ${validos.length} ${IdiomaService.t('imp_map_ok')}',
             style: const TextStyle(
                 color: Colors.black, fontWeight: FontWeight.bold),
           ),
@@ -237,7 +369,12 @@ class _MapasScreenState extends State<MapasScreen> {
   }
 
 
-  Future<void> _cargarMbtiles(File archivoExterno) async {
+  Future<void> _cargarMbtiles(
+    File archivoExterno, {
+    bool mantenerCamara = false,
+    LatLng? centroPrevio,
+    double? zoomPrevio,
+  }) async {
     if (_cargandoMapa) return;
     setState(() {
       _cargandoMapa = true;
@@ -245,7 +382,6 @@ class _MapasScreenState extends State<MapasScreen> {
     });
 
     try {
-      // 1. Copiar a directorio interno nativo (ext4/f2fs) para evitar bloqueo FUSE
       final dirInterno = await getApplicationSupportDirectory();
       final nombreArchivo = archivoExterno.uri.pathSegments.last;
       final archivoInterno = File('${dirInterno.path}/$nombreArchivo');
@@ -255,7 +391,6 @@ class _MapasScreenState extends State<MapasScreen> {
         await archivoExterno.copy(archivoInterno.path);
       }
 
-      // 2. Normalizar tabla metadata y leer minzoom/center si existen
       final db = sqlite.sqlite3.open(archivoInterno.path);
       double zoomInicial = 1.0;
       LatLng centroInicial = const LatLng(0, 0);
@@ -268,11 +403,14 @@ class _MapasScreenState extends State<MapasScreen> {
         db.execute(
             "INSERT OR REPLACE INTO metadata (name, value) VALUES ('version', '1.3');");
 
-        final resZoom = db.select("SELECT value FROM metadata WHERE name = 'minzoom';");
+        final resZoom =
+            db.select("SELECT value FROM metadata WHERE name = 'minzoom';");
         if (resZoom.isNotEmpty) {
-          zoomInicial = double.tryParse(resZoom.first['value'].toString()) ?? 1.0;
+          zoomInicial =
+              double.tryParse(resZoom.first['value'].toString()) ?? 1.0;
         }
-        final resCenter = db.select("SELECT value FROM metadata WHERE name = 'center';");
+        final resCenter =
+            db.select("SELECT value FROM metadata WHERE name = 'center';");
         if (resCenter.isNotEmpty) {
           final partes = resCenter.first['value'].toString().split(',');
           if (partes.length >= 2) {
@@ -280,7 +418,8 @@ class _MapasScreenState extends State<MapasScreen> {
             final lat = double.tryParse(partes.elementAt(1)) ?? 0;
             centroInicial = LatLng(lat, lon);
             if (partes.length >= 3) {
-              zoomInicial = double.tryParse(partes.elementAt(2)) ?? zoomInicial;
+              zoomInicial =
+                  double.tryParse(partes.elementAt(2)) ?? zoomInicial;
             }
           }
         }
@@ -288,17 +427,27 @@ class _MapasScreenState extends State<MapasScreen> {
         db.close();
       }
 
+      final meta = _leerMetadatosMbtiles(archivoInterno, archivoExterno);
       _tileProvider?.dispose();
       final provider = MbTilesTileProvider.fromPath(path: archivoInterno.path);
 
       if (!mounted) return;
       setState(() {
         _tileProvider = provider;
+        _maxNativeZoomActivo = meta.maxZoom;
+        if (_maxZoomPermitido < meta.maxZoom) {
+          _maxZoomPermitido = meta.maxZoom.toDouble();
+        }
         _cargandoMapa = false;
       });
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _mapController.move(centroInicial, zoomInicial);
+        if (!mounted) return;
+        if (mantenerCamara && centroPrevio != null && zoomPrevio != null) {
+          _mapController.move(centroPrevio, zoomPrevio);
+        } else {
+          _mapController.move(centroInicial, zoomInicial);
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -308,6 +457,7 @@ class _MapasScreenState extends State<MapasScreen> {
       });
     }
   }
+
 
 
   Future<void> _obtenerGps() async {
@@ -356,17 +506,17 @@ class _MapasScreenState extends State<MapasScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlgState) => AlertDialog(
           backgroundColor: const Color(0xFF121212),
-          title: const Text('NUEVO WAYPOINT TÁCTICO',
-              style: TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
+          title: Text(IdiomaService.t('wp_nuevo_titulo'),
+              style: const TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: nombreCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Nombre (ej. Campamento, Agua, Peligro)',
+                decoration: InputDecoration(
+                  labelText: IdiomaService.t('wp_nombre_hint'),
                   filled: true,
-                  fillColor: Color(0xFF1A1A1A),
+                  fillColor: const Color(0xFF1A1A1A),
                 ),
               ),
               const SizedBox(height: 12),
@@ -374,11 +524,19 @@ class _MapasScreenState extends State<MapasScreen> {
                 value: tipoSel,
                 isExpanded: true,
                 dropdownColor: const Color(0xFF1A1A1A),
-                items: const [
-                  DropdownMenuItem(value: 'base', child: Text('🏕️ Campamento / Base')),
-                  DropdownMenuItem(value: 'agua', child: Text('💧 Agua Potable / Recurso')),
-                  DropdownMenuItem(value: 'peligro', child: Text('⚠️ Peligro / Zona Bloqueada')),
-                  DropdownMenuItem(value: 'auxilio', child: Text('🏥 Punto Médico / Auxilio')),
+                items: [
+                  DropdownMenuItem(
+                      value: 'base',
+                      child: Text(IdiomaService.t('wp_tipo_base'))),
+                  DropdownMenuItem(
+                      value: 'agua',
+                      child: Text(IdiomaService.t('wp_tipo_agua'))),
+                  DropdownMenuItem(
+                      value: 'peligro',
+                      child: Text(IdiomaService.t('wp_tipo_peligro'))),
+                  DropdownMenuItem(
+                      value: 'auxilio',
+                      child: Text(IdiomaService.t('wp_tipo_auxilio'))),
                 ],
                 onChanged: (v) {
                   if (v != null) setDlgState(() => tipoSel = v);
@@ -389,7 +547,8 @@ class _MapasScreenState extends State<MapasScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+              child: Text(IdiomaService.t('cancelar'),
+                  style: const TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -397,7 +556,7 @@ class _MapasScreenState extends State<MapasScreen> {
                   foregroundColor: Colors.black),
               onPressed: () async {
                 final nombre = nombreCtrl.text.trim().isEmpty
-                    ? 'Marcador ${punto.latitude.toStringAsFixed(3)}'
+                    ? 'WP ${punto.latitude.toStringAsFixed(3)}'
                     : nombreCtrl.text.trim();
                 final nuevo = WaypointTactico(
                   id: '${DateTime.now().millisecondsSinceEpoch}',
@@ -407,18 +566,20 @@ class _MapasScreenState extends State<MapasScreen> {
                   lon: punto.longitude,
                 );
                 _waypoints.add(nuevo);
-                await WaypointsService.guardarLista(widget.rutaMapas, _waypoints);
+                await WaypointsService.guardarLista(
+                    widget.rutaMapas, _waypoints);
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx);
                 setState(() {});
               },
-              child: const Text('GUARDAR'),
+              child: Text(IdiomaService.t('guardar')),
             ),
           ],
         ),
       ),
     );
   }
+
   Future<void> _iniciarGuiadoHacia(WaypointTactico wp) async {
   setState(() {
     _destinoGuiado = wp;
@@ -485,12 +646,12 @@ class _MapasScreenState extends State<MapasScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF121212),
-        title: const Text('RENOMBRAR RASTRO GPX',
+        title:Text(IdiomaService.t('gpx_renombrar'),
             style: TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
         content: TextField(
           controller: ctrl,
-          decoration: const InputDecoration(
-            labelText: 'Nuevo nombre del recorrido',
+          decoration: InputDecoration(
+            labelText: IdiomaService.t('gpx_nuevo_nombre'),
             filled: true,
             fillColor: Color(0xFF1A1A1A),
           ),
@@ -498,7 +659,7 @@ class _MapasScreenState extends State<MapasScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            child:Text(IdiomaService.t('cancelar'), style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -523,7 +684,7 @@ class _MapasScreenState extends State<MapasScreen> {
               onActualizarModal();
               if (mounted) setState(() {});
             },
-            child: const Text('GUARDAR'),
+            child:Text(IdiomaService.t('guardar')),
           ),
         ],
       ),
@@ -547,9 +708,9 @@ class _MapasScreenState extends State<MapasScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'RASTROS GPX GUARDADOS',
-                    style: TextStyle(
+                  Text(
+                    IdiomaService.t('rastros_gpx'),
+                    style: const TextStyle(
                       color: Color(0xFFFF6D00),
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
@@ -564,10 +725,10 @@ class _MapasScreenState extends State<MapasScreen> {
               ),
               const Divider(color: Colors.grey),
               if (_rastrosGuardados.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 24),
                   child: Text(
-                    'Aún no has grabado ningún rastro GPX.\nUsa el botón circular cian arriba para empezar a grabar tu recorrido.',
+                    IdiomaService.t('gpx_vacio'),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey, fontSize: 12),
                   ),
@@ -600,7 +761,7 @@ class _MapasScreenState extends State<MapasScreen> {
                               fontSize: 13),
                         ),
                         subtitle: Text(
-                          '${r.puntos.length} puntos registrados',
+                          '${r.puntos.length} ${IdiomaService.t('gpx_puntos')}',
                           style:
                               const TextStyle(color: Colors.grey, fontSize: 11),
                         ),
@@ -734,7 +895,7 @@ class _MapasScreenState extends State<MapasScreen> {
                     fontSize: 16)),
             const SizedBox(height: 4),
             Text(
-                'Coordenadas: ${wp.lat.toStringAsFixed(6)}, ${wp.lon.toStringAsFixed(6)}',
+                '${IdiomaService.t('wp_coords')} ${wp.lat.toStringAsFixed(6)}, ${wp.lon.toStringAsFixed(6)}',
                 style: const TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -742,7 +903,7 @@ class _MapasScreenState extends State<MapasScreen> {
                   backgroundColor: const Color(0xFFFF6D00),
                   foregroundColor: Colors.black),
               icon: const Icon(Icons.alt_route),
-              label: const Text('GUIAR DESDE MI UBICACIÓN',
+              label:Text(IdiomaService.t('wp_guiar'),
                   style: TextStyle(fontWeight: FontWeight.bold)),
               onPressed: () {
                 Navigator.pop(ctx);
@@ -755,7 +916,7 @@ class _MapasScreenState extends State<MapasScreen> {
                   backgroundColor: const Color(0xFF00E676),
                   foregroundColor: Colors.black),
               icon: const Icon(Icons.share_location),
-              label: const Text('TRANSMITIR WAYPOINT A LA MALLA BLE',
+              label:Text(IdiomaService.t('wp_transmitir'),
                   style: TextStyle(fontWeight: FontWeight.bold)),
               onPressed: () async {
                 final cfg = await NodoConfigService.cargar();
@@ -772,9 +933,9 @@ class _MapasScreenState extends State<MapasScreen> {
                 Navigator.pop(ctx);
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
+                  SnackBar(
                     backgroundColor: Color(0xFF00E676),
-                    content: Text('Waypoint transmitido a la malla.',
+                    content: Text(IdiomaService.t('wp_transmitido_ok'),
                         style: TextStyle(color: Colors.black)),
                   ),
                 );
@@ -782,7 +943,7 @@ class _MapasScreenState extends State<MapasScreen> {
             ),
             TextButton.icon(
               icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              label: const Text('Eliminar Marcador',
+              label:Text(IdiomaService.t('wp_eliminar'),
                   style: TextStyle(color: Colors.redAccent)),
               onPressed: () async {
                 _waypoints.removeWhere((item) => item.id == wp.id);
@@ -1001,16 +1162,15 @@ class _MapasScreenState extends State<MapasScreen> {
                           const Icon(Icons.map_outlined,
                               size: 64, color: Color(0xFFFF6D00)),
                           const SizedBox(height: 16),
-                          const Text(
-                            'Sin mapas offline cargados',
-                            style: TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.bold),
+                          Text(
+                            IdiomaService.t('sin_mapas'),
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            'Descarga mapas en la pestaña Preparar o importa un archivo .mbtiles desde tu teléfono.',
+                          Text(
+                            IdiomaService.t('sin_mapas_desc'),
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey),
+                            style: const TextStyle(color: Colors.grey),
                           ),
                           const SizedBox(height: 18),
                           ElevatedButton.icon(
@@ -1020,8 +1180,8 @@ class _MapasScreenState extends State<MapasScreen> {
                             ),
                             onPressed: _importarMbtiles,
                             icon: const Icon(Icons.upload_file),
-                            label: const Text('Importar mapa .mbtiles',
-                                style: TextStyle(fontWeight: FontWeight.bold)),
+                            label: Text(IdiomaService.t('importar_mapas'),
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         ],
                       ),
@@ -1032,17 +1192,25 @@ class _MapasScreenState extends State<MapasScreen> {
                         initialCenter: const LatLng(0, 0),
                         initialZoom: 2.0,
                         minZoom: 0.0,
-                        maxZoom: 18.0,
+                        maxZoom: _maxZoomPermitido,
                         backgroundColor: const Color(0xFF000000),
                         interactionOptions: const InteractionOptions(
                           flags: InteractiveFlag.all,
                         ),
+                        onPositionChanged: (camera, hasGesture) {
+                          if (hasGesture) {
+                            _evaluarCambioAutomaticoMapa(
+                                camera.center, camera.zoom);
+                          }
+                        },
                         onLongPress: (tapPos, punto) =>
                             _crearWaypointEn(punto),
                       ),
                       children: [
                         TileLayer(
                           tileProvider: _tileProvider!,
+                          maxNativeZoom: _maxNativeZoomActivo,
+                          maxZoom: _maxZoomPermitido,
                         ),
                         if (_rutaActiva != null &&
                             _rutaActiva!.puntos.length >= 2)

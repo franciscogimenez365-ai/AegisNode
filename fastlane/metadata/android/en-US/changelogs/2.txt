@@ -1,0 +1,6 @@
+• BLE stability on older Android devices (alias-based deduplication and anti-congestion control for error 147).
+• Visual radar for neighboring nodes, with signal strength displayed in dBm.
+• Emergency SOS beacon with battery telemetry and continuous GPS tracking.
+• Hybrid channel with AES-256-GCM encryption (supports both Open Channels and Private Groups).
+• Tactical waypoints and offline street-level routing (A*) covering a 45 km range, with a heading-based fallback.
+• Expanded Wi-Fi web portal for sharing maps, road networks, and ZIM-format encyclopedias.

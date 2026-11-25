@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../services/geo_db_service.dart';
 import '../services/generador_mbtiles.dart';
+import '../services/idioma_service.dart';
 
 class ExploradorMapasScreen extends StatefulWidget {
   final String rutaMapas;
@@ -179,7 +180,7 @@ class _ExploradorMapasScreenState extends State<ExploradorMapasScreen> {
                   color: const Color(0xFF00E676),
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: const Text('TU UBICACIÓN GPS',
+                child: Text(IdiomaService.t('exp_mapas_tu_gps'),
                     style: TextStyle(
                         color: Colors.black,
                         fontSize: 10,
@@ -190,7 +191,7 @@ class _ExploradorMapasScreenState extends State<ExploradorMapasScreen> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('${lugar.provincia}, ${lugar.pais} • Nivel Calle Z10–15',
+            Text('${lugar.provincia}, ${lugar.pais} • ${IdiomaService.t('exp_mapas_calle')}',
                 style: const TextStyle(color: Colors.grey, fontSize: 12)),
             if (progreso != null) ...[
               const SizedBox(height: 8),
@@ -231,7 +232,7 @@ class _ExploradorMapasScreenState extends State<ExploradorMapasScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Explorador Mundial SQLite',
+        title:Text(IdiomaService.t('exp_mapas_titulo'),
             style: TextStyle(fontSize: 16)),
         backgroundColor: const Color(0xFF121212),
       ),
@@ -243,7 +244,7 @@ class _ExploradorMapasScreenState extends State<ExploradorMapasScreen> {
               controller: _buscadorCtrl,
               onChanged: (_) => _cargarNivelActual(),
               decoration: InputDecoration(
-                hintText: 'Buscar ciudad entre +30.000 localidades...',
+                hintText: IdiomaService.t('exp_mapas_hint'),
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: _buscadorCtrl.text.isNotEmpty
                     ? IconButton(
@@ -298,10 +299,10 @@ class _ExploradorMapasScreenState extends State<ExploradorMapasScreen> {
                     child: ListTile(
                       leading: const Icon(Icons.public,
                           color: Color(0xFFFF6D00)),
-                      title: const Text('Mapa Mundial Base (Zoom 0–5)',
+                      title:Text(IdiomaService.t('exp_mapas_mundial'),
                           style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: const Text(
-                          'Cobertura global de continentes, países y capitales'),
+                      subtitle:Text(
+                          IdiomaService.t('exp_mapas_mundial_sub')),
                       trailing: _progresos['mundial_base'] != null
                           ? const SizedBox(
                               width: 24,

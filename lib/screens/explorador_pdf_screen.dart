@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import '../services/buscador_pdf_service.dart';
 import '../services/descargas_service.dart';
+import '../services/idioma_service.dart';
 
 class ExploradorPdfScreen extends StatefulWidget {
   final String rutaManuales;
@@ -21,19 +22,29 @@ class _ExploradorPdfScreenState extends State<ExploradorPdfScreen> {
   final Map<String, double> _progresos = {};
   final Map<String, CancelToken> _tokens = {};
 
-  static const List<String> _temasRapidos = [
-    'primeros auxilios',
-    'supervivencia',
-    'agua potable',
-    'energia solar',
-    'radio comunicaciones',
-  ];
+static List<String> get _temasRapidos => IdiomaService.esEspanol
+    ? const [
+        'primeros auxilios',
+        'supervivencia',
+        'agua potable',
+        'energia solar',
+        'radio comunicaciones',
+      ]
+    : const [
+        'first aid',
+        'survival',
+        'water purification',
+        'solar power',
+        'emergency radio',
+      ];
 
-  @override
-  void initState() {
-    super.initState();
-    _ejecutarBusqueda('primeros auxilios');
-  }
+@override
+void initState() {
+  super.initState();
+  _ejecutarBusqueda(
+      IdiomaService.esEspanol ? 'primeros auxilios' : 'first aid');
+}
+
 
   Future<void> _ejecutarBusqueda(String consulta) async {
     _buscadorCtrl.text = consulta;
@@ -112,7 +123,7 @@ class _ExploradorPdfScreenState extends State<ExploradorPdfScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Buscador Mundial de Manuales PDF',
+        title: Text(IdiomaService.t('exp_pdf_titulo'),
             style: TextStyle(fontSize: 16)),
         backgroundColor: const Color(0xFF121212),
       ),
@@ -127,7 +138,7 @@ class _ExploradorPdfScreenState extends State<ExploradorPdfScreen> {
                     controller: _buscadorCtrl,
                     onSubmitted: _ejecutarBusqueda,
                     decoration: InputDecoration(
-                      hintText: 'Ej. primeros auxilios, supervivencia, solar...',
+                      hintText: IdiomaService.t('exp_pdf_hint'),
                       prefixIcon: const Icon(Icons.search),
                       filled: true,
                       fillColor: const Color(0xFF121212),
@@ -144,7 +155,7 @@ class _ExploradorPdfScreenState extends State<ExploradorPdfScreen> {
                     foregroundColor: Colors.black,
                   ),
                   onPressed: () => _ejecutarBusqueda(_buscadorCtrl.text),
-                  child: const Text('Buscar'),
+                  child: Text(IdiomaService.t('exp_pdf_buscar_btn')),
                 ),
               ],
             ),
@@ -171,8 +182,8 @@ class _ExploradorPdfScreenState extends State<ExploradorPdfScreen> {
             const LinearProgressIndicator(color: Color(0xFFFF6D00)),
           Expanded(
             child: _resultados.isEmpty && !_buscando
-                ? const Center(
-                    child: Text('Escribe un tema técnico o de emergencia',
+                ? Center(
+                    child: Text(IdiomaService.t('exp_pdf_vacio'),
                         style: TextStyle(color: Colors.grey)),
                   )
                 : ListView.builder(

@@ -1,0 +1,4 @@
+• Full Google Play Store compatibility: isolated private storage with no intrusive permissions.
+• Native multi-importer with a real-time progress bar for PDF manuals, maps (.mbtiles/.json/.gpx), and ZIM encyclopedias.
+• Protection against directory traversal and XSS attacks, plus rate limiting for the Wi-Fi web portal.
+• Cryptographic derivation using PBKDF2WithHmacSHA256 (100,000 iterations) for AES-256-GCM encrypted private groups, and a block on external outbound connections within the ZIM viewer.

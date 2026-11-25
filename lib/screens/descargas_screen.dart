@@ -7,6 +7,8 @@ import '../services/geo_db_service.dart';
 import 'explorador_pdf_screen.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/enrutador_offline_service.dart';
+import '../services/idioma_service.dart';
+
 
 
 
@@ -193,16 +195,17 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
   Widget build(BuildContext context) {
     final listaActual = _obtenerCatalogoFiltrado();
     final etiquetasCategoria = {
-      'mapas': 'SUGERENCIAS DE MAPAS (SEGÚN TU GPS: ${_regionGpsDetectada.toUpperCase()})',
-      'wikis': 'ENCICLOPEDIAS ZIM',
-      'manuales': 'MANUALES TÉCNICOS Y DE EMERGENCIA (PDF)',
+      'mapas':
+          '${IdiomaService.t('sec_mapas_gps')} ${_regionGpsDetectada.toUpperCase()})',
+      'wikis': IdiomaService.t('sec_wikis'),
+      'manuales': IdiomaService.t('sec_manuales'),
     };
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text('SELECCIONA EL TIPO DE RECURSO A PREPARAR',
-            style: TextStyle(color: Colors.grey, fontSize: 12)),
+        Text(IdiomaService.t('prep_titulo_sec'),
+            style: const TextStyle(color: Colors.grey, fontSize: 12)),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -216,10 +219,16 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
                 value: _categoriaSeleccionada,
                 underline: const SizedBox(),
                 dropdownColor: const Color(0xFF121212),
-                items: const [
-                  DropdownMenuItem(value: 'mapas', child: Text('Mapas')),
-                  DropdownMenuItem(value: 'wikis', child: Text('Wikis ZIM')),
-                  DropdownMenuItem(value: 'manuales', child: Text('Manuales PDF')),
+                items: [
+                  DropdownMenuItem(
+                      value: 'mapas',
+                      child: Text(IdiomaService.t('cat_mapas'))),
+                  DropdownMenuItem(
+                      value: 'wikis',
+                      child: Text(IdiomaService.t('cat_wikis'))),
+                  DropdownMenuItem(
+                      value: 'manuales',
+                      child: Text(IdiomaService.t('cat_manuales'))),
                 ],
                 onChanged: (v) => setState(() => _categoriaSeleccionada = v!),
               ),
@@ -229,7 +238,7 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
               child: TextField(
                 controller: _urlCtrl,
                 decoration: InputDecoration(
-                  hintText: 'URL directa opcional...',
+                  hintText: IdiomaService.t('url_opcional'),
                   filled: true,
                   fillColor: const Color(0xFF121212),
                   border: OutlineInputBorder(
@@ -240,7 +249,7 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
             ),
             IconButton(
               icon: const Icon(Icons.download, color: Color(0xFFFF6D00)),
-              tooltip: 'Descargar URL personalizada',
+              tooltip: IdiomaService.t('tip_url'),
               onPressed: _descargarUrlPersonalizada,
             ),
           ],
@@ -260,9 +269,9 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             icon: const Icon(Icons.account_tree),
-            label: const Text(
-              'EXPLORAR POR CONTINENTE / PAÍS / PROVINCIA / CIUDAD',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            label: Text(
+              IdiomaService.t('btn_explorar_mapas'),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
             ),
             onPressed: () {
               Navigator.push(
@@ -284,12 +293,12 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    'RED VIAL OFFLINE (RUTAS POR CALLES)',
-                    style: TextStyle(
+                  Text(
+                    IdiomaService.t('red_vial_titulo'),
+                    style: const TextStyle(
                       color: Color(0xFFFF6D00),
                       fontWeight: FontWeight.bold,
-                      fontSize: 13,                      
+                      fontSize: 13,
                     ),
                   ),
                   if (_descargandoRedVial) ...[
@@ -301,9 +310,9 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
                     ),
                   ],
                   const SizedBox(height: 4),
-                  const Text(
-                    'Descarga las calles y caminos (45 km alrededor de tu GPS) para calcular rutas esquina por esquina sin Internet.',
-                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  Text(
+                    IdiomaService.t('red_vial_desc'),
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
                   ),
                   if (_estadoRedVial.isNotEmpty) ...[
                     const SizedBox(height: 6),
@@ -324,8 +333,8 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
                     icon: const Icon(Icons.alt_route),
                     label: Text(
                       _descargandoRedVial
-                          ? 'DESCARGANDO CALLES (45 KM)...'
-                          : 'DESCARGAR RED VIAL (45 KM)',
+                          ? IdiomaService.t('btn_descargando_calles')
+                          : IdiomaService.t('btn_descargar_calles'),
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -334,8 +343,7 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
             ),
           ),
         ],
-
-                if (_categoriaSeleccionada == 'manuales') ...[
+        if (_categoriaSeleccionada == 'manuales') ...[
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFFF6D00),
@@ -343,9 +351,9 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             icon: const Icon(Icons.manage_search),
-            label: const Text(
-              'BUSCAR MANUALES LIBRES EN BASE MUNDIAL (PDF)',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            label: Text(
+              IdiomaService.t('btn_buscar_manuales'),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
             ),
             onPressed: () {
               Navigator.push(
@@ -360,40 +368,39 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
           ),
           const SizedBox(height: 16),
         ],
-             if (_categoriaSeleccionada == 'wikis') ...[
-       TextField(
-         controller: _wikiSearchCtrl,
-         onSubmitted: _buscarEnKiwix,
-         decoration: InputDecoration(
-           hintText: 'Buscar tema en catálogo Kiwix (ej. electrónica, física)...',
-           prefixIcon: const Icon(Icons.search),
-           suffixIcon: _wikiSearchCtrl.text.isNotEmpty
-               ? IconButton(
-                   icon: const Icon(Icons.clear),
-                   onPressed: () {
-                     _wikiSearchCtrl.clear();
-                     setState(() => _wikisBuscadas = []);
-                   },
-                 )
-               : IconButton(
-                   icon: const Icon(Icons.arrow_forward,
-                       color: Color(0xFFFF6D00)),
-                   onPressed: () => _buscarEnKiwix(_wikiSearchCtrl.text),
-                 ),
-           filled: true,
-           fillColor: const Color(0xFF121212),
-           border: OutlineInputBorder(
-               borderRadius: BorderRadius.circular(10),
-               borderSide: BorderSide.none),
-         ),
-       ),
-       if (_buscandoWiki) ...[
-         const SizedBox(height: 8),
-         const LinearProgressIndicator(color: Color(0xFFFF6D00)),
-       ],
-       const SizedBox(height: 12),
-     ],
-
+        if (_categoriaSeleccionada == 'wikis') ...[
+          TextField(
+            controller: _wikiSearchCtrl,
+            onSubmitted: _buscarEnKiwix,
+            decoration: InputDecoration(
+              hintText: IdiomaService.t('hint_kiwix'),
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _wikiSearchCtrl.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _wikiSearchCtrl.clear();
+                        setState(() => _wikisBuscadas = []);
+                      },
+                    )
+                  : IconButton(
+                      icon: const Icon(Icons.arrow_forward,
+                          color: Color(0xFFFF6D00)),
+                      onPressed: () => _buscarEnKiwix(_wikiSearchCtrl.text),
+                    ),
+              filled: true,
+              fillColor: const Color(0xFF121212),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none),
+            ),
+          ),
+          if (_buscandoWiki) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(color: Color(0xFFFF6D00)),
+          ],
+          const SizedBox(height: 12),
+        ],
         ...listaActual.map((item) {
           final archivoLocal = File(
               '${widget.rutaBase}/${item.categoriaCarpeta}/${item.nombreArchivoDestino}');
@@ -427,8 +434,8 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
                         color: const Color(0xFF00E676),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text('TU ZONA GPS',
-                          style: TextStyle(
+                      child: Text(IdiomaService.t('badge_tu_zona'),
+                          style: const TextStyle(
                               color: Colors.black,
                               fontSize: 10,
                               fontWeight: FontWeight.bold)),
@@ -475,3 +482,4 @@ List<RecursoOffline> _obtenerCatalogoFiltrado() {
     );
   }
 }
+

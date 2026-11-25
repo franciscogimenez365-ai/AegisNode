@@ -12,11 +12,20 @@ import '../services/nodo_config_service.dart';
 import '../services/servidor_local.dart';
 import '../services/dead_drop_service.dart';
 import '../services/sync_cartografia_service.dart';
+import '../services/idioma_service.dart';
+
 
 class NodoScreen extends StatefulWidget {
   final String rutaBase;
   final void Function(double lat, double lon)? onAbrirCoordenada;
-  const NodoScreen({super.key, required this.rutaBase, this.onAbrirCoordenada});
+  final VoidCallback? onCambioIdioma;
+  const NodoScreen({
+    super.key,
+    required this.rutaBase,
+    this.onAbrirCoordenada,
+    this.onCambioIdioma,
+  });
+
 
   @override
   State<NodoScreen> createState() => _NodoScreenState();
@@ -87,10 +96,10 @@ class _NodoScreenState extends State<NodoScreen> {
   Future<void> _enviarMensaje() async {
     if (_config.alias.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           backgroundColor: Color(0xFFFF6D00),
           content: Text(
-            'Configura tu indicativo o alias antes de enviar mensajes.',
+            IdiomaService.t('aviso_alias'),
             style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
           ),
         ),
@@ -169,7 +178,7 @@ class _NodoScreenState extends State<NodoScreen> {
     if (_sosActivo) {
       _timerSos?.cancel();
       setState(() => _sosActivo = false);
-      MeshChatService.publicarAvisoSistema('Baliza SOS desactivada.');
+      MeshChatService.publicarAvisoSistema(IdiomaService.t('sos_apagado_aviso'));
       return;
     }
 
@@ -197,20 +206,20 @@ class _NodoScreenState extends State<NodoScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) => AlertDialog(
           backgroundColor: const Color(0xFF121212),
-          title: const Text('📦 BUZÓN MUERTO (DEAD DROP)',
+          title: Text(IdiomaService.t('dead_drop_titulo'),
               style: TextStyle(color: Color(0xFFFF6D00), fontSize: 15)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Guarda un paquete en este nodo. Cuando el destinatario pase en rango BLE, se entregará automáticamente.',
+              Text(
+                IdiomaService.t('dead_drop_desc'),
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: destCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Alias Destinatario (vacío = cualquier vecino)',
+                decoration: InputDecoration(
+                  labelText: IdiomaService.t('dead_drop_dest'),
                   filled: true,
                   fillColor: Color(0xFF1A1A1A),
                 ),
@@ -219,8 +228,8 @@ class _NodoScreenState extends State<NodoScreen> {
               TextField(
                 controller: msgCtrl,
                 maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Mensaje táctico o instrucciones...',
+                decoration: InputDecoration(
+                  labelText: IdiomaService.t('dead_drop_msg'),
                   filled: true,
                   fillColor: Color(0xFF1A1A1A),
                 ),
@@ -228,7 +237,7 @@ class _NodoScreenState extends State<NodoScreen> {
               if (_config.claveGrupo.trim().isNotEmpty)
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Cifrar con clave de grupo AES-256',
+                  title: Text (IdiomaService.t('dead_drop_cifrar'),
                       style: TextStyle(fontSize: 12)),
                   value: soloGrupoPrivado,
                   activeThumbColor: const Color(0xFF00E676),
@@ -239,7 +248,7 @@ class _NodoScreenState extends State<NodoScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+              child: Text (IdiomaService.t('cancelar'), style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -277,7 +286,7 @@ class _NodoScreenState extends State<NodoScreen> {
                   '📦 Dead Drop guardado (${destCtrl.text.trim().isEmpty ? "Cualquier vecino" : "Para: ${destCtrl.text.trim()}"}).',
                 );
               },
-              child: const Text('GUARDAR EN BUZÓN'),
+              child: Text(IdiomaService.t('dead_drop_guardar')),
             ),
           ],
         ),
@@ -306,8 +315,7 @@ class _NodoScreenState extends State<NodoScreen> {
         _config.alias.trim().isEmpty ? 'NODO-SOS' : _config.alias.trim();
     final batTexto = bateria >= 0 ? ' • BAT: $bateria%' : '';
     final cuerpoSos =
-        '🚨 [BALIZA SOS]$batTexto • REQUIERO ASISTENCIA INMEDIATA';
-
+        '$batTexto ${IdiomaService.t('sos_cuerpo')}';
     await MeshChatService.publicarMensajeLocal(
       autor: aliasEfectivo,
       texto: cuerpoSos,
@@ -338,14 +346,14 @@ class _NodoScreenState extends State<NodoScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('CONFIGURACIÓN Y PRIVACIDAD DEL NODO',
+                Text(IdiomaService.t('config_nodo'),
                     style: TextStyle(
                         color: Color(0xFFFF6D00), fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
                 TextField(
                   controller: aliasCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Indicativo / Alias de Usuario',
+                  decoration: InputDecoration(
+                    labelText: IdiomaService.t('alias_label'),
                     filled: true,
                     fillColor: Color(0xFF1A1A1A),
                   ),
@@ -354,26 +362,60 @@ class _NodoScreenState extends State<NodoScreen> {
              TextField(
                controller: claveCtrl,
                obscureText: true,
-               decoration: const InputDecoration(
-                 labelText: 'Clave de Grupo AES-256 (Opcional)',
-                 hintText: 'Vacío = solo canal abierto comunitario',
+               decoration: InputDecoration(
+                 labelText: IdiomaService.t('clave_grupo'),
+                 hintText: IdiomaService.t('clave_grupo_hint'),
                  prefixIcon: Icon(Icons.lock_outline, color: Color(0xFF00E676)),
                  filled: true,
                  fillColor: Color(0xFF1A1A1A),
                ),
              ),
- 
                 const SizedBox(height: 12),
+                Text(
+                  IdiomaService.esEspanol
+                      ? 'Idioma de la Aplicación:'
+                      : 'App Language:',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                DropdownButton<String>(
+                  value: IdiomaService.codigoActual,
+                  isExpanded: true,
+                  dropdownColor: const Color(0xFF1A1A1A),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'auto',
+                      child: Text(IdiomaService.esEspanol
+                          ? 'Automático (Sistema)'
+                          : 'Automatic (System)'),
+                    ),
+                    const DropdownMenuItem(
+                      value: 'es',
+                      child: Text('Español'),
+                    ),
+                    const DropdownMenuItem(
+                      value: 'en',
+                      child: Text('English'),
+                    ),
+                  ],
+                  onChanged: (val) async {
+                    if (val != null) {
+                      await IdiomaService.establecerIdioma(val);
+                      setModalState(() {});
+                      if (mounted) setState(() {});
+                      widget.onCambioIdioma?.call();
+                    }
+                  },
+                ),
                 SwitchListTile(
-                  title: const Text('Rol: Nodo Maestro (Punto de Mando)'),
+                  title:Text(IdiomaService.t('rol_maestro')),
                   subtitle: Text(_config.esMaestro
-                      ? 'Coordina red y difusión'
-                      : 'Modo Repetidor / Campo (Reenvía saltos)'),
+                      ? IdiomaService.t('rol_maestro_sub')
+                      : IdiomaService.t('rol_repetidor_sub')),
                   value: _config.esMaestro,
                   activeThumbColor: const Color(0xFF00E676),
                   onChanged: (v) => setModalState(() => _config.esMaestro = v),
                 ),
-                Text('Saltos máximos en Malla (TTL): ${_config.ttlMaximo}',
+                Text('${IdiomaService.t('ttl_max')} ${_config.ttlMaximo}',
                     style: const TextStyle(fontSize: 13)),
                 Slider(
                   value: _config.ttlMaximo.toDouble(),
@@ -385,22 +427,22 @@ class _NodoScreenState extends State<NodoScreen> {
                   onChanged: (v) =>
                       setModalState(() => _config.ttlMaximo = v.toInt()),
                 ),
-                const Text('Perfil de Energía (Ahorro de Batería):',
+                 Text(IdiomaService.t('perfil_energia'),
                     style: TextStyle(fontSize: 13)),
                 DropdownButton<PerfilEnergiaMesh>(
                   value: _config.perfilEnergia,
                   isExpanded: true,
                   dropdownColor: const Color(0xFF1A1A1A),
-                  items: const [
+                  items: [
                     DropdownMenuItem(
                         value: PerfilEnergiaMesh.ultraAhorro,
-                        child: Text('Ultra-Ahorro (Escucha cada 45s)')),
+                        child: Text(IdiomaService.t('energia_ultra'))),
                     DropdownMenuItem(
                         value: PerfilEnergiaMesh.equilibrado,
-                        child: Text('Equilibrado (Escucha cada 12s)')),
+                        child: Text(IdiomaService.t('energia_eq'))),
                     DropdownMenuItem(
                         value: PerfilEnergiaMesh.rescateActivo,
-                        child: Text('Rescate Activo (Continuo)')),
+                        child: Text(IdiomaService.t('energia_rescate'))),
                   ],
                   onChanged: (p) {
                     if (p != null) {
@@ -410,47 +452,47 @@ class _NodoScreenState extends State<NodoScreen> {
                 ),
                 const Divider(),
                 SwitchListTile(
-                  title: const Text('Activar Chat de Emergencia'),
+                  title: Text(IdiomaService.t('cfg_chat')),
                   value: _config.chatActivo,
                   activeThumbColor: const Color(0xFF00E676),
                   onChanged: (v) => setModalState(() => _config.chatActivo = v),
                 ),
                 SwitchListTile(
-                  title: const Text('Compartir mi Ubicación GPS'),
-                  subtitle: const Text('Adjunta coordenadas a tus mensajes'),
+                  title: Text(IdiomaService.t('cfg_gps')),
+                  subtitle: Text(IdiomaService.t('cfg_gps_sub')),
                   value: _config.compartirGps,
                   activeThumbColor: const Color(0xFF00E676),
                   onChanged: (v) =>
                       setModalState(() => _config.compartirGps = v),
                 ),
                 SwitchListTile(
-                  title: const Text('Compartir Archivos en Portal Wi-Fi'),
+                  title: Text(IdiomaService.t('cfg_wifi_files')),
                   value: _config.compartirArchivos,
                   activeThumbColor: const Color(0xFF00E676),
                   onChanged: (v) =>
                       setModalState(() => _config.compartirArchivos = v),
                 ),
                 SwitchListTile(
-                  title: const Text('Notificar mensajes entrantes'),
-                  subtitle: const Text('Emite alerta en segundo plano al recibir'),
+                  title:Text(IdiomaService.t('cfg_notif')),
+                  subtitle: Text(IdiomaService.t('cfg_notif_sub')),
                   value: _config.notificarMensajes,
                   activeThumbColor: const Color(0xFF00E676),
                   onChanged: (v) =>
                      setModalState(() => _config.notificarMensajes = v),
                 ),
                                 SwitchListTile(
-                  title: const Text('Compartir Mapas y Red Vial en Malla'),
-                  subtitle: const Text(
-                      'Avisa a vecinos qué mapas y calles offline tienes'),
+                  title: Text(IdiomaService.t('cfg_sync_mapas')),
+                  subtitle: Text(
+                      IdiomaService.t('cfg_sync_mapas_sub')),
                   value: _config.syncMapasYRutas,
                   activeThumbColor: const Color(0xFF00E676),
                   onChanged: (v) =>
                       setModalState(() => _config.syncMapasYRutas = v),
                 ),
                 SwitchListTile(
-                  title: const Text('Compartir mis Waypoints Personales'),
-                  subtitle: const Text(
-                      'Desactivado por defecto para proteger tus ubicaciones'),
+                  title: Text(IdiomaService.t('cfg_sync_wp')),
+                  subtitle: Text(
+                      IdiomaService.t('cfg_sync_wp_sub')),
                   value: _config.syncWaypointsPersonales,
                   activeThumbColor: const Color(0xFFFF6D00),
                   onChanged: (v) => setModalState(
@@ -475,7 +517,7 @@ class _NodoScreenState extends State<NodoScreen> {
                  setState(() {});
                },
 
-                  child: const Text('GUARDAR CONFIGURACIÓN',
+                  child: Text(IdiomaService.t('guardar_cfg'),
                       style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ],
@@ -503,8 +545,8 @@ class _NodoScreenState extends State<NodoScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'RADAR DE NODOS VECINOS (BLE)',
+                  Text(
+                    IdiomaService.t('radar_titulo'),
                     style: TextStyle(
                       color: Color(0xFFFF6D00),
                       fontWeight: FontWeight.bold,
@@ -519,10 +561,10 @@ class _NodoScreenState extends State<NodoScreen> {
               ),
               const Divider(color: Colors.grey),
               if (vecinos.isEmpty)
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(vertical: 24),
                   child: Text(
-                    'Ningún nodo vecino detectado en los últimos 25 segundos.',
+                    (IdiomaService.t('radar_vacio')),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey),
                   ),
@@ -534,13 +576,13 @@ class _NodoScreenState extends State<NodoScreen> {
                   final String calidad;
                   final Color colorSenal;
                   if (v.rssi >= -65) {
-                    calidad = 'Señal Fuerte (Cerca)';
+                    calidad = IdiomaService.t('radar_fuerte');
                     colorSenal = const Color(0xFF00E676);
                   } else if (v.rssi >= -82) {
-                    calidad = 'Señal Media';
+                    calidad = IdiomaService.t('radar_media');
                     colorSenal = const Color(0xFFFF6D00);
                   } else {
-                    calidad = 'Señal Débil (Al límite)';
+                    calidad = IdiomaService.t('radar_debil');
                     colorSenal = Colors.redAccent;
                   }
 
@@ -588,7 +630,7 @@ Widget build(BuildContext context) {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${_config.alias.isEmpty ? "SIN ALIAS" : _config.alias} • ${_config.esMaestro ? "MAESTRO" : "REPETIDOR"} (TTL ${_config.ttlMaximo})',
+                          '${_config.alias.isEmpty ? (IdiomaService.t('sin_alias')) : _config.alias} • ${_config.esMaestro ? (IdiomaService.t('maestro')) : (IdiomaService.t('repetidor')) } (TTL ${_config.ttlMaximo})',
                           style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF00E676),
@@ -605,8 +647,8 @@ Widget build(BuildContext context) {
                                 final cant = snap.data ?? 0;
                                 return Text(
                                   _bleActivo
-                                      ? 'Malla BLE Activa • Vecinos: $cant (Ver radar ▸)'
-                                      : 'Malla BLE Apagada (Ahorro máximo)',
+                                      ? '${IdiomaService.t('ble_activa')} $cant (${IdiomaService.t('ver_radar')})'
+                                      : (IdiomaService.t('ble_apagada')),
                                   style: TextStyle(
                                     color: _bleActivo
                                         ? const Color(0xFF00E676)
@@ -631,11 +673,11 @@ Widget build(BuildContext context) {
                         _activarODetenerSos();
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
+                          SnackBar(
                             duration: Duration(seconds: 2),
                             backgroundColor: Colors.redAccent,
                             content: Text(
-                              'Mantén presionado el botón SOS 2 segundos para emitir alerta de emergencia.',
+                              IdiomaService.t('sos_tip'),
                               style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold),
@@ -660,8 +702,8 @@ Widget build(BuildContext context) {
                           const Icon(Icons.sos, color: Colors.white, size: 17),
                           if (_sosActivo) ...[
                             const SizedBox(width: 3),
-                            const Text(
-                              'ACTIVO',
+                            Text(
+                              IdiomaService.t('sos_activo_corto'),
                               style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -692,7 +734,7 @@ Widget build(BuildContext context) {
           collapsedBackgroundColor: const Color(0xFF121212),
           leading: Icon(Icons.wifi_tethering,
               color: _wifiActivo ? const Color(0xFF00E676) : Colors.grey),
-          title: const Text('Portal Web Wi-Fi (Opcional / Archivos)',
+          title: Text((IdiomaService.t('portal_wifi')),
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
           trailing: Switch(
             value: _wifiActivo,
@@ -738,7 +780,7 @@ Widget build(BuildContext context) {
                  ),
                  onPressed: () => setState(() => _verCanalPrivado = false),
                  icon: const Icon(Icons.public, size: 16),
-                 label: const Text('CANAL ABIERTO',
+                 label: Text((IdiomaService.t('canal_abierto')),
                      style: TextStyle(
                          fontSize: 11, fontWeight: FontWeight.bold)),
                ),
@@ -755,7 +797,7 @@ Widget build(BuildContext context) {
                  ),
                  onPressed: () => setState(() => _verCanalPrivado = true),
                  icon: const Icon(Icons.lock, size: 16),
-                 label: const Text('GRUPO PRIVADO',
+                 label: Text((IdiomaService.t('grupo_privado')),
                      style: TextStyle(
                          fontSize: 11, fontWeight: FontWeight.bold)),
                ),
@@ -766,8 +808,8 @@ Widget build(BuildContext context) {
 
         Expanded(
           child: !_config.chatActivo
-              ? const Center(
-                  child: Text('Chat desactivado en Configuración del Nodo',
+              ? Center(
+                  child: Text((IdiomaService.t('chat_desactivado')),
                       style: TextStyle(color: Colors.grey)))
               : StreamBuilder<List<MensajeMesh>>(
                   stream: MeshChatService.streamMensajes,
@@ -786,8 +828,8 @@ Widget build(BuildContext context) {
                         child: Text(
                             _verCanalPrivado &&
                                     _config.claveGrupo.trim().isNotEmpty
-                                ? 'Sin mensajes cifrados en este grupo.\nComparte la misma Clave AES-256 con tu equipo.'
-                                : 'Sin mensajes en la malla.\nEnciende BLE o Wi-Fi para comunicarte.',
+                                ? IdiomaService.t('sin_msgs_privado')
+                                : IdiomaService.t('sin_msgs_abierto'),
                             textAlign: TextAlign.center,
                             style: const TextStyle(color: Colors.grey)),
                       );
@@ -818,7 +860,7 @@ Widget build(BuildContext context) {
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   Text(
-                                    '🗺️ MAPAS / RUTAS DISPONIBLES EN ${oferta.autor.toUpperCase()}',
+                                    '${IdiomaService.t('oferta_titulo')} ${oferta.autor.toUpperCase()}',
                                     style: const TextStyle(
                                       color: Color(0xFF00E676),
                                       fontWeight: FontWeight.bold,
@@ -862,7 +904,7 @@ Widget build(BuildContext context) {
                                             label: Text(
                                               descargando
                                                   ? 'Descargando ${(prog * 100).toStringAsFixed(0)}%...'
-                                                  : 'Descargar $etiqueta',
+                                                  : '${IdiomaService.t('descargar_btn')} $etiqueta',
                                               style: const TextStyle(
                                                   fontWeight: FontWeight.bold,
                                                   fontSize: 12),
@@ -970,7 +1012,7 @@ Widget build(BuildContext context) {
                                       ),
                                       icon: const Icon(Icons.play_arrow,
                                           size: 18),
-                                      label: const Text('NOTA DE VOZ PTT (4s)',
+                                      label:Text((IdiomaService.t('nota_voz_ptt')),
                                           style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 11)),
@@ -1000,7 +1042,7 @@ Widget build(BuildContext context) {
                                     child: Padding(
                                       padding: const EdgeInsets.only(top: 4),
                                       child: Text(
-                                        '📍 GPS: ${m.gps} (Tocar para ver en mapa)',
+                                        '📍 GPS: ${m.gps} ${IdiomaService.t('ver_en_mapa')}',
                                         style: const TextStyle(
                                           color: Color(0xFFFF6D00),
                                           fontSize: 11,
@@ -1022,7 +1064,7 @@ Widget build(BuildContext context) {
                                     : Colors.grey,
                                 size: 18,
                               ),
-                              tooltip: 'Fijar como importante para sincronización',
+                              tooltip: IdiomaService.t('tip_pin'),
                               onPressed: () async {
                                 await DeadDropService.alternarImportante(m);
                                 setState(() {});
@@ -1045,8 +1087,8 @@ Widget build(BuildContext context) {
                   child: TextField(
                     controller: _msgCtrl,
                     onSubmitted: (_) => _enviarMensaje(),
-                    decoration: const InputDecoration(
-                      hintText: 'Mensaje de emergencia a la malla...',
+                    decoration: InputDecoration(
+                      hintText: (IdiomaService.t('hint_mensaje')),
                       border: InputBorder.none,
                     ),
                   ),
@@ -1054,7 +1096,7 @@ Widget build(BuildContext context) {
                 IconButton(
                   icon: const Icon(Icons.inventory_2_outlined,
                       color: Color(0xFFFF6D00)),
-                  tooltip: 'Dejar Dead Drop (Buzón Muerto)',
+                  tooltip: IdiomaService.t('tip_dead_drop'),
                   onPressed: _abrirDialogoDeadDrop,
                 ),
                 GestureDetector(
